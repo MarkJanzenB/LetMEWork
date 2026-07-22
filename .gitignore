@@ -3,5 +3,10 @@ output/
 __pycache__/
 .pytest_cache/
 .claude/
+.opencode/
 resume.md
 *.pdf
+data/
+nul
+opencode.json
+migrate_json_to_db.py

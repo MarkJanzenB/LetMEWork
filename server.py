@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import queue
 import threading
@@ -8,24 +10,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import db
+
 app = FastAPI()
 
-STATUS_FILE = Path("output/status.json")
-JOBS_FILE = Path("output/jobs.json")
-COVER_LETTERS_DIR = Path("output/cover_letters")
-
 run_lock = threading.Lock()
-
-
-def _read_status() -> dict:
-    if STATUS_FILE.exists():
-        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
-    return {}
-
-
-def _write_status(data: dict) -> None:
-    STATUS_FILE.parent.mkdir(exist_ok=True)
-    STATUS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 @app.get("/")
@@ -35,12 +24,8 @@ async def index():
 
 @app.get("/api/jobs")
 async def get_jobs():
-    if not JOBS_FILE.exists():
-        return JSONResponse([])
-    jobs = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
-    status = _read_status()
-    for job in jobs:
-        job["status"] = status.get(job.get("url", ""), "none")
+    db.init_db()
+    jobs = db.get_jobs_for_api()
     return JSONResponse(jobs)
 
 
@@ -51,32 +36,180 @@ class StatusUpdate(BaseModel):
 
 @app.post("/api/status")
 async def update_status(body: StatusUpdate):
-    if body.status not in ("applied", "skipped", "none"):
-        raise HTTPException(status_code=400, detail="status must be applied, skipped, or none")
-    data = _read_status()
-    if body.status == "none":
-        data.pop(body.url, None)
-    else:
-        data[body.url] = body.status
-    _write_status(data)
+    db.init_db()
+    job_id = db.get_job_id_by_url(body.url)
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        db.set_job_status(job_id, body.status)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
+
+
+@app.post("/api/bulk-apply")
+async def bulk_apply(
+    min_score: int | None = Query(default=None),
+    max_score: int | None = Query(default=None),
+):
+    """Mark filtered jobs as applied and return their URLs."""
+    db.init_db()
+    jobs = db.get_jobs_for_api()
+    urls = []
+    for job in jobs:
+        url = job.get("url", "")
+        score = job.get("score", 0)
+        if not url:
+            continue
+        if min_score is not None and score < min_score:
+            continue
+        if max_score is not None and score > max_score:
+            continue
+        job_id = job.get("id")
+        if job_id:
+            db.set_job_status(job_id, "applied")
+            urls.append(url)
+    return JSONResponse({"urls": urls, "count": len(urls)})
 
 
 @app.get("/api/cover-letter")
 async def get_cover_letter(company: str = Query(...), title: str = Query(...)):
     from agent import _slug
+
     slug = f"{_slug(company)}__{_slug(title)}"
-    path = COVER_LETTERS_DIR / f"{slug}.md"
-    if not path.exists():
+    db.init_db()
+
+    with db.get_db() as conn:
+        row = conn.execute(
+            "SELECT cl.content FROM cover_letters cl "
+            "JOIN jobs j ON cl.job_id = j.id "
+            "WHERE j.url LIKE ? OR j.title LIKE ?",
+            (f"%{slug}%", f"%{title}%"),
+        ).fetchone()
+
+    if not row:
         raise HTTPException(status_code=404, detail="Cover letter not found")
-    return {"content": path.read_text(encoding="utf-8")}
+    return {"content": row["content"]}
+
+
+@app.get("/api/status-counts")
+async def get_status_counts():
+    db.init_db()
+    counts = db.get_status_counts()
+    # Ensure all statuses are present
+    for status in ["none", "applied", "ignored", "interviewed", "rejected", "hired"]:
+        if status not in counts:
+            counts[status] = 0
+    return counts
+
+
+@app.get("/api/runs")
+async def get_runs():
+    db.init_db()
+    runs = db.get_runs()
+    return runs
+
+
+@app.get("/api/export/csv")
+async def export_csv(
+    min_score: int | None = Query(default=None),
+    max_score: int | None = Query(default=None),
+    status: str | None = Query(default=None),
+):
+    db.init_db()
+    jobs = db.get_jobs_for_api()
+
+    # Apply filters
+    filtered_jobs = []
+    for job in jobs:
+        score = job.get("score", 0)
+        job_status = job.get("status", "none")
+
+        if min_score is not None and score < min_score:
+            continue
+        if max_score is not None and score > max_score:
+            continue
+        if status and job_status != status:
+            continue
+        filtered_jobs.append(job)
+
+    # Create CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow(
+        [
+            "Score",
+            "Verdict",
+            "Status",
+            "Title",
+            "Company",
+            "Location",
+            "Work Arrangement",
+            "URL",
+            "Match Reasons",
+            "Red Flags",
+            "Suggested Angle",
+        ]
+    )
+
+    # Data rows
+    for job in filtered_jobs:
+        writer.writerow(
+            [
+                job.get("score", ""),
+                job.get("verdict", ""),
+                job.get("status", "none"),
+                job.get("title", ""),
+                job.get("company", ""),
+                job.get("location", ""),
+                job.get("work_arrangement", ""),
+                job.get("url", ""),
+                "; ".join(job.get("match_reasons", [])),
+                "; ".join(job.get("red_flags", [])),
+                job.get("suggested_angle", ""),
+            ]
+        )
+
+    # Return as downloadable CSV
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=jobs_export.csv"},
+    )
+
+
+@app.put("/api/cover-letter")
+async def update_cover_letter(
+    company: str = Query(...), title: str = Query(...), content: str = Query(...)
+):
+    from agent import _slug
+
+    slug = f"{_slug(company)}__{_slug(title)}"
+    db.init_db()
+
+    with db.get_db() as conn:
+        row = conn.execute(
+            "SELECT j.id FROM jobs j WHERE j.url LIKE ? OR j.title LIKE ?",
+            (f"%{slug}%", f"%{title}%"),
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    db.update_cover_letter(row["id"], content)
+    return {"ok": True}
 
 
 @app.get("/api/run")
 async def run_agent():
     if not run_lock.acquire(blocking=False):
+
         async def _busy():
             yield f"data: {json.dumps({'step': 'busy'})}\n\n"
+
         return StreamingResponse(_busy(), media_type="text/event-stream")
 
     q: queue.Queue = queue.Queue()
@@ -87,6 +220,7 @@ async def run_agent():
     def _pipeline_thread() -> None:
         try:
             from agent import run_pipeline
+
             result = run_pipeline(on_progress=_on_progress)
             q.put({"step": "complete", **result})
         except Exception as exc:
@@ -99,6 +233,7 @@ async def run_agent():
 
     async def _event_stream():
         import asyncio
+
         loop = asyncio.get_running_loop()
         while True:
             event = await loop.run_in_executor(None, q.get)
