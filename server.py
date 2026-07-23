@@ -1,8 +1,12 @@
 import csv
 import io
 import json
+import logging
 import queue
+import signal
+import sys
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
@@ -12,7 +16,16 @@ from pydantic import BaseModel
 
 import db
 
-app = FastAPI()
+logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
+logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 run_lock = threading.Lock()
 
@@ -245,4 +258,10 @@ async def run_agent():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+    def _shutdown(sig, frame):
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error")
