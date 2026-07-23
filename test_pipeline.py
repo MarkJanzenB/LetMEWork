@@ -100,7 +100,10 @@ def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
 
     events = []
 
+    mock_profile = {"name": "Test", "experience_years": 2}
+
     with (
+        patch.object(agent, "extract_resume_profile", return_value=mock_profile),
         patch.object(agent, "build_search_config", return_value=mock_config),
         patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs),
         patch.object(agent, "analyze_jobs", return_value=mock_analyzed),
@@ -109,6 +112,8 @@ def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
         result = agent.run_pipeline(on_progress=lambda s, l, st: events.append((s, st)))
 
     step_statuses = {(s, st) for s, st in events}
+    assert (0, "running") in step_statuses
+    assert (0, "done") in step_statuses
     assert (1, "running") in step_statuses
     assert (1, "done") in step_statuses
     assert (2, "running") in step_statuses
@@ -163,6 +168,7 @@ def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
     ]
 
     with (
+        patch.object(agent, "extract_resume_profile", return_value={"name": "Test"}),
         patch.object(agent, "build_search_config", return_value=mock_config),
         patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs),
         patch.object(agent, "analyze_jobs", return_value=mock_analyzed),

@@ -1,4 +1,4 @@
-The candidate's resume is provided below. The candidate can be in any profession — developer, designer, virtual assistant, writer, accountant, marketer, etc. Derive everything from what the resume actually says.
+The candidate's structured profile and raw resume are provided below. Use the structured profile for efficient lookup; refer to the raw resume only for details not in the profile.
 
 Output ONLY a valid JSON object — no markdown fences, no explanation, no extra text — in this exact shape:
 
@@ -9,9 +9,9 @@ Output ONLY a valid JSON object — no markdown fences, no explanation, no extra
 }
 
 Rules:
-- target_roles: 4–6 job title variants based on the candidate's actual experience. Examples: a developer resume might yield "Frontend Developer" and "React Developer"; a virtual assistant resume might yield "Virtual Assistant", "Executive Assistant", and "Administrative Assistant".
-- key_skills: the top 6–8 skills, tools, or services the candidate is strongest in, extracted from their skills section and work experience (prioritize what appears in both).
-- search_queries: Firecrawl-ready search strings combining role titles and skills with site: prefixes. Use OR operators for breadth. Produce exactly one query per job board listed at the end of this prompt, plus exactly one grouped query per Reddit subreddit group listed there. Read the candidate's location from the resume and include location-aware keywords: include "remote" to find remote roles, but also include the candidate's city/country or "nearby" when targeting onsite or hybrid roles. Every query must target work arrangements compatible with the candidate's location.
+- target_roles: 4–6 job title variants based on the candidate's actual experience. Prioritize roles that match the candidate's demonstrated skills and seniority level (from experience_years and roles).
+- key_skills: the top 6–8 skills the candidate is strongest in — use the structured profile's skills grouped by category. Prioritize skills that appear in BOTH the skills section and work experience.
+- search_queries: Firecrawl-ready search strings combining role titles and skills with site: prefixes. Use OR operators for breadth. Produce exactly one query per job board listed at the end of this prompt, plus exactly one grouped query per Reddit subreddit group listed there. Use the candidate's location and timezone from the profile to include location-aware keywords: "remote" for remote roles, and the candidate's city/country for onsite or hybrid roles. Every query must target work arrangements compatible with the candidate's location.
 
 Reddit query format — combine the subreddits of one group with OR, and include the group's extra terms if it has any:
   "(site:reddit.com/r/jobbit OR site:reddit.com/r/remotejobs OR site:reddit.com/r/WorkOnline) (React OR Next.js OR \"Full Stack\") TypeScript"

@@ -141,16 +141,40 @@ def _sources_context(cfg: dict) -> str:
 
 
 # ── step 0: build search config from resume ───────────────
-def build_search_config() -> dict:
+def build_search_config(profile: dict | None = None) -> dict:
     """Ask opencode to extract search config from the resume."""
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
-    context = _sources_context(load_config()) + f"\n\n=== RESUME ===\n{resume}\n=== END RESUME ==="
+    profile_json = json.dumps(profile, indent=2) if profile else ""
+    context = (
+        _sources_context(load_config())
+        + f"\n\n=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ==="
+        + f"\n\n=== RAW RESUME ===\n{resume}\n=== END RESUME ==="
+    )
     result = run_opencode_json("prompts/build_queries.md", context=context)
     Path("output/search_config.json").write_text(json.dumps(result, indent=2))
     print(f"  Roles: {result.get('target_roles')}")
     print(f"  Skills: {result.get('key_skills')}")
     print(f"  Queries ({len(result.get('search_queries', []))}): ready")
     return result
+
+
+# ── step 0a: extract structured resume profile ────────────
+def extract_resume_profile() -> dict:
+    """Extract a structured profile from the resume once, cache to disk."""
+    profile_path = Path("output/resume_profile.json")
+    if profile_path.exists():
+        print("  Using cached resume profile")
+        return json.loads(profile_path.read_text(encoding="utf-8"))
+
+    resume = config.RESUME_FILE.read_text(encoding="utf-8")
+    context = f"=== RESUME ===\n{resume}\n=== END RESUME ==="
+    print("  Extracting resume profile...")
+    profile = run_opencode_json("prompts/extract_profile.md", context=context)
+    profile_path.write_text(json.dumps(profile, indent=2))
+    print(
+        f"  Profile: {profile.get('name', '?')} — {profile.get('experience_years', '?')} years experience"
+    )
+    return profile
 
 
 # ── url canonicalization ──────────────────────────────────
@@ -632,10 +656,11 @@ def run_opencode_json(prompt_file: str, context: str = ""):
 ANALYZE_BATCH_SIZE = 30  # jobs per model call — keeps context small enough for free models
 
 
-def analyze_jobs() -> list[dict]:
+def analyze_jobs(profile: dict | None = None) -> list[dict]:
     """Run opencode analysis on raw_jobs.json in batches, then merge."""
     raw_jobs = json.loads(Path("output/raw_jobs.json").read_text(encoding="utf-8"))
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
+    profile_json = json.dumps(profile, indent=2) if profile else ""
     today = datetime.now().strftime("%Y-%m-%d")
     all_scored: list[dict] = []
 
@@ -650,7 +675,8 @@ def analyze_jobs() -> list[dict]:
         print(f"  Batch {idx}/{len(batches)} ({len(batch)} jobs)...")
         context = (
             f"Today's date is {today}.\n"
-            f"\n=== RESUME ===\n{resume}\n=== END RESUME ===\n"
+            f"\n=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ===\n"
+            f"\n=== RAW RESUME ===\n{resume}\n=== END RESUME ===\n"
             f"\n=== JOBS (batch {idx} of {len(batches)}) ===\n"
             f"{json.dumps(batch, indent=2)}\n=== END JOBS ==="
         )
@@ -671,10 +697,11 @@ def _slug(text: str, max_len: int = 40) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:max_len]
 
 
-def generate_cover_letters(jobs: list[dict]):
+def generate_cover_letters(jobs: list[dict], profile: dict | None = None):
     out_dir = Path("output/cover_letters")
     out_dir.mkdir(parents=True, exist_ok=True)
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
+    profile_json = json.dumps(profile, indent=2) if profile else ""
 
     for job in jobs:
         company = job.get("company") or "unknown"
@@ -685,7 +712,8 @@ def generate_cover_letters(jobs: list[dict]):
         print(f"  Writing cover letter: {company} — {title[:50]}...")
         try:
             context = (
-                f"=== RESUME ===\n{resume}\n=== END RESUME ===\n"
+                f"=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ===\n"
+                f"\n=== RAW RESUME ===\n{resume}\n=== END RESUME ===\n"
                 f"\n---JOB---\n{json.dumps(job, indent=2)}"
             )
             letter = run_opencode("prompts/cover_letter.md", context=context)
@@ -721,8 +749,12 @@ def run_pipeline(on_progress=None) -> dict:
     run_id = db.start_run()
 
     try:
+        emit(0, "Extracting resume profile", "running")
+        profile = extract_resume_profile()
+        emit(0, "Extracting resume profile", "done")
+
         emit(1, "Building search config", "running")
-        search_config = build_search_config()
+        search_config = build_search_config(profile)
         search_queries = search_config.get("search_queries", [])
         if not search_queries:
             raise RuntimeError("No search queries generated — check prompts/build_queries.md")
@@ -737,7 +769,7 @@ def run_pipeline(on_progress=None) -> dict:
         emit(2, "Scraping jobs", "done")
 
         emit(3, "Analyzing & scoring", "running")
-        all_jobs = analyze_jobs()
+        all_jobs = analyze_jobs(profile)
         db.save_pipeline_output(all_jobs, run_id)
         emit(3, "Analyzing & scoring", "done")
 
@@ -745,7 +777,7 @@ def run_pipeline(on_progress=None) -> dict:
         good_jobs = [j for j in all_jobs if j.get("score", 0) >= config.THRESHOLD]
         apply_jobs = [j for j in good_jobs if j.get("verdict") == "apply"]
         if apply_jobs:
-            generate_cover_letters(apply_jobs)
+            generate_cover_letters(apply_jobs, profile)
             db.save_cover_letters(apply_jobs, run_id)
         emit(4, "Generating cover letters", "done")
 

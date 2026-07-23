@@ -887,6 +887,11 @@
     <div id="progress-section" class="pipeline" style="display:none;">
       <div class="pipeline-steps">
         <div class="pipeline-step">
+          <span id="s0-icon" class="pipeline-icon">○</span>
+          <span id="s0-label" class="pipeline-label">Profile</span>
+        </div>
+        <span class="pipeline-arrow">→</span>
+        <div class="pipeline-step">
           <span id="s1-icon" class="pipeline-icon">○</span>
           <span id="s1-label" class="pipeline-label">Build Config</span>
         </div>
@@ -1143,7 +1148,7 @@
       prog.style.display = '';
       summary.style.display = 'none';
       errBan.style.display = 'none';
-      for (let i = 1; i <= 4; i++) setStep(i, 'pending');
+      for (let i = 0; i <= 4; i++) setStep(i, 'pending');
 
       const es = new EventSource('/api/run');
 
@@ -1157,7 +1162,7 @@
         }
         if (ev.step === 'error') {
           es.close(); reset(btn, prog);
-          for (let i = 1; i <= 4; i++) {
+          for (let i = 0; i <= 4; i++) {
             if (document.getElementById(`s${i}-icon`).textContent === '↻') setStep(i, 'error');
           }
           showError(`Pipeline error: ${ev.message}`);
