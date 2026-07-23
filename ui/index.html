@@ -502,6 +502,18 @@
       color: var(--mecha-silver);
     }
 
+    .source-tag {
+      font-family: var(--font-mono);
+      font-size: 0.55rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-pill);
+      background: rgba(88, 200, 255, 0.1);
+      color: var(--led-propeller);
+      border: 1px solid rgba(88, 200, 255, 0.2);
+    }
+
     /* work arrangement badges */
     .arrangement-badge {
       font-family: var(--font-mono);
@@ -1203,6 +1215,7 @@
                 ${esc(job.score ?? '?')}
               </span>
               ${job.work_arrangement ? `<span class="arrangement-badge ${arrangementCls(job.work_arrangement)}">${esc(arrangementLabel(job.work_arrangement))}</span>` : ''}
+              ${job.source ? `<span class="source-tag">${esc(job.source)}</span>` : ''}
               <span class="verdict-tag">${esc(job.verdict ?? '')}</span>
             </div>
             <h3 class="job-title">${esc(job.title ?? '')}</h3>

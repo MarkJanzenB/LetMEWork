@@ -258,6 +258,9 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
         # Resolve the posting URL relative to the page; fall back to the page URL.
         posting_url = (p.get("url") or "").strip()
         posting_url = urljoin(listing_url, posting_url) if posting_url else listing_url
+        # Skip if the extracted URL is the same as the source (search results page)
+        if _dedup_key(posting_url) == _dedup_key(listing_url):
+            continue
         postings.append(
             {
                 "title": p.get("title", "").strip(),
