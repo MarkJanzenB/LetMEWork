@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at      TEXT NOT NULL,
     finished_at     TEXT,
     status          TEXT NOT NULL DEFAULT 'running',
+    step            INTEGER DEFAULT 0,
+    label           TEXT DEFAULT '',
     jobs_found      INTEGER DEFAULT 0,
     above_threshold INTEGER DEFAULT 0,
     model_used      TEXT,
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS job_statuses (
     job_id     INTEGER NOT NULL REFERENCES jobs(id) UNIQUE,
     status     TEXT NOT NULL DEFAULT 'none',
     updated_at TEXT NOT NULL,
+    viewed_at  TEXT,
     notes      TEXT NOT NULL DEFAULT ''
 );
 
@@ -110,9 +113,20 @@ CREATE INDEX IF NOT EXISTS idx_jobs_url      ON jobs(url);
 
 
 def init_db():
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist, and run migrations."""
     with get_db() as conn:
         conn.executescript(_SCHEMA)
+        # Migrations for existing databases
+        for col, typedef in [
+            ("step", "INTEGER DEFAULT 0"),
+            ("label", "TEXT DEFAULT ''"),
+            ("viewed_at", "TEXT"),
+        ]:
+            table = "runs" if col in ("step", "label") else "job_statuses"
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 # ── timestamp helper ──────────────────────────────────────
@@ -141,6 +155,24 @@ def finish_run(
             "UPDATE runs SET finished_at=?, status=?, jobs_found=?, above_threshold=?, "
             "error_message=? WHERE id=?",
             (_now(), status, jobs_found, above_threshold, error or "", run_id),
+        )
+
+
+def get_active_run() -> dict | None:
+    """Return the currently active run, or None if no run is active."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, step, label, status FROM runs WHERE status='running' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_run_step(run_id: int, step: int, label: str):
+    """Update the current step of an active run."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE runs SET step=?, label=? WHERE id=?",
+            (step, label, run_id),
         )
 
 
@@ -305,13 +337,6 @@ def get_job_status(job_id: int) -> str:
         return row["status"] if row else "none"
 
 
-def get_all_statuses() -> dict[int, dict]:
-    """Return {job_id: {status, updated_at}} for all tracked jobs."""
-    with get_db() as conn:
-        rows = conn.execute("SELECT job_id, status, updated_at FROM job_statuses").fetchall()
-        return {r["job_id"]: {"status": r["status"], "updated_at": r["updated_at"]} for r in rows}
-
-
 def get_status_counts() -> dict[str, int]:
     """Return {status: count} for funnel summary."""
     with get_db() as conn:
@@ -321,7 +346,35 @@ def get_status_counts() -> dict[str, int]:
         return {r["status"]: r["cnt"] for r in rows}
 
 
-# ── raw jobs ──────────────────────────────────────────────
+def mark_viewed(job_url: str):
+    """Mark a job as viewed by setting viewed_at timestamp."""
+    with get_db() as conn:
+        job = conn.execute("SELECT id FROM jobs WHERE url=?", (job_url,)).fetchone()
+        if job:
+            conn.execute(
+                "INSERT INTO job_statuses (job_id, status, updated_at, viewed_at) "
+                "VALUES (?, 'none', ?, ?) "
+                "ON CONFLICT(job_id) DO UPDATE SET viewed_at=?",
+                (job["id"], _now(), _now(), _now()),
+            )
+
+
+def get_all_statuses() -> dict[int, dict]:
+    """Return {job_id: {status, updated_at, viewed_at}} for all tracked jobs."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, updated_at, viewed_at FROM job_statuses"
+        ).fetchall()
+        return {
+            r["job_id"]: {
+                "status": r["status"],
+                "updated_at": r["updated_at"],
+                "viewed_at": r["viewed_at"],
+            }
+            for r in rows
+        }
+
+
 def insert_raw_jobs(raw_jobs: list[dict], run_id: int | None = None):
     """Bulk insert raw scraped jobs."""
     with get_db() as conn:
@@ -390,7 +443,9 @@ def get_jobs_for_api() -> list[dict]:
         if st:
             job["status"] = st["status"]
             job["updated_at"] = st["updated_at"]
+            job["viewed_at"] = st["viewed_at"]
         else:
             job["status"] = "none"
             job["updated_at"] = None
+            job["viewed_at"] = None
     return scores

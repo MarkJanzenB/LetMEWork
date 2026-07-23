@@ -710,6 +710,7 @@ def run_pipeline(on_progress=None) -> dict:
     def emit(step, label, status):
         if on_progress:
             on_progress(step, label, status)
+        db.update_run_step(run_id, step, label)
 
     Path("output").mkdir(exist_ok=True)
     db.init_db()

@@ -514,6 +514,58 @@
       border: 1px solid rgba(88, 200, 255, 0.2);
     }
 
+    .new-badge {
+      font-family: var(--font-mono);
+      font-size: 0.55rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-pill);
+      background: rgba(196, 255, 88, 0.2);
+      color: var(--mecha-neon);
+      border: 1px solid rgba(196, 255, 88, 0.4);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .job-new {
+      border-left: 3px solid var(--mecha-neon);
+    }
+
+    /* run status banner */
+    .run-status-banner {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 0.8rem 1rem;
+      background: var(--mecha-gray);
+      border: 1px solid var(--mecha-neon-dim);
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      color: var(--mecha-silver);
+    }
+
+    .run-status-banner .spinner {
+      color: var(--mecha-neon);
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .run-status-banner .step-label {
+      color: var(--mecha-white);
+      font-weight: 600;
+    }
+
     /* work arrangement badges */
     .arrangement-badge {
       font-family: var(--font-mono);
@@ -892,6 +944,12 @@
     <!-- Error Banner -->
     <div id="error-banner" class="banner banner-error" style="display:none;"></div>
 
+    <!-- Run Status Banner -->
+    <div id="run-status-banner" class="run-status-banner" style="display:none;">
+      <span class="spinner">↻</span>
+      <span>Active run: <span class="step-label" id="run-status-step">Step 1</span> — <span id="run-status-label">Starting...</span></span>
+    </div>
+
     <!-- Filter Bar -->
     <div class="filter-bar">
       <input type="text" id="search-input" placeholder="Search jobs..." 
@@ -1139,6 +1197,40 @@
       el.style.display = '';
     }
 
+    /* ── run status ─────────────────────────────────────── */
+    async function checkRunStatus() {
+      try {
+        const res = await fetch('/api/run-status');
+        const data = await res.json();
+        const banner = document.getElementById('run-status-banner');
+        if (data.active) {
+          banner.style.display = '';
+          document.getElementById('run-status-step').textContent = `Step ${data.step}`;
+          document.getElementById('run-status-label').textContent = data.label || 'Running...';
+        } else {
+          banner.style.display = 'none';
+        }
+      } catch (e) {
+        console.error('Failed to check run status', e);
+      }
+    }
+
+    /* ── mark viewed ────────────────────────────────────── */
+    async function markJobViewed(url) {
+      try {
+        await fetch('/api/viewed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, status: 'none' })
+        });
+        const job = allJobs.find(j => j.url === url);
+        if (job) job.viewed_at = new Date().toISOString();
+        renderJobs();
+      } catch (e) {
+        console.error('Failed to mark viewed', e);
+      }
+    }
+
     /* ── jobs ────────────────────────────────────────────── */
     async function loadJobs() {
       try {
@@ -1147,6 +1239,7 @@
         updateTabCounts();
         renderJobs();
         updateFunnelSummary();
+        checkRunStatus();
       } catch (e) {
         console.error('Failed to load jobs', e);
       }
@@ -1207,7 +1300,7 @@
       }
 
       document.getElementById('jobs-list').innerHTML = jobs.map(job => `
-      <div class="job-card ${verdictClass(job.verdict)}">
+      <div class="job-card ${verdictClass(job.verdict)} ${!job.viewed_at ? 'job-new' : ''}">
         <div class="job-head">
           <div class="job-body">
             <div class="job-meta">
@@ -1216,6 +1309,7 @@
               </span>
               ${job.work_arrangement ? `<span class="arrangement-badge ${arrangementCls(job.work_arrangement)}">${esc(arrangementLabel(job.work_arrangement))}</span>` : ''}
               ${job.source ? `<span class="source-tag">${esc(job.source)}</span>` : ''}
+              ${!job.viewed_at ? '<span class="new-badge">NEW</span>' : ''}
               <span class="verdict-tag">${esc(job.verdict ?? '')}</span>
             </div>
             <h3 class="job-title">${esc(job.title ?? '')}</h3>
@@ -1233,7 +1327,8 @@
           </details>` : ''}
         <div class="job-actions">
           <a href="${esc(job.url ?? '#')}" target="_blank" rel="noopener noreferrer"
-             class="btn-card btn-card--primary">
+             class="btn-card btn-card--primary"
+             onclick="markJobViewed('${esc(job.url ?? '')}')">
             Open Job ↗
           </a>
           <button onclick="openCL('${esc(job.company ?? '')}','${esc(job.title ?? '')}')"
@@ -1477,6 +1572,9 @@
     const saved = localStorage.getItem('lastRun');
     if (saved) document.getElementById('last-run').textContent = `Last run: ${saved}`;
     loadJobs();
+
+    // Poll for active run status every 5 seconds
+    setInterval(checkRunStatus, 5000);
   </script>
 </body>
 

@@ -60,6 +60,29 @@ async def update_status(body: StatusUpdate):
     return {"ok": True}
 
 
+@app.post("/api/viewed")
+async def mark_viewed(body: StatusUpdate):
+    db.init_db()
+    db.mark_viewed(body.url)
+    return {"ok": True}
+
+
+@app.get("/api/run-status")
+async def get_run_status():
+    db.init_db()
+    run = db.get_active_run()
+    if run:
+        return JSONResponse(
+            {
+                "active": True,
+                "step": run.get("step", 0),
+                "label": run.get("label", ""),
+                "status": run.get("status", "running"),
+            }
+        )
+    return JSONResponse({"active": False})
+
+
 @app.post("/api/bulk-apply")
 async def bulk_apply(
     min_score: int | None = Query(default=None),
