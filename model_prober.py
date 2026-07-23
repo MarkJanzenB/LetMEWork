@@ -121,13 +121,15 @@ def probe_all_models() -> list[dict]:
         + _opencode_builtin_candidates()
     )
 
-    print(f"  Probing {len(candidates)} candidate models...")
+    total = len(candidates)
+    print(f"  Probing {total} candidate models...")
     healthy: list[dict] = []
-    for model_id in candidates:
+    for i, model_id in enumerate(candidates, 1):
         provider = model_id.split("/")[0]
+        print(f"    [{i}/{total}] Probing {model_id}...", end="", flush=True)
         ok = _probe_model(model_id)
-        status = "OK" if ok else "FAIL"
-        print(f"    {status}  {model_id}")
+        status = "✓" if ok else "✗"
+        print(f" {status}")
         if ok:
             healthy.append(
                 {
