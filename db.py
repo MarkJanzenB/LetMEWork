@@ -257,9 +257,7 @@ def get_latest_scores() -> list[dict]:
 def upsert_cover_letter(job_id: int, content: str, run_id: int | None = None):
     """Store a cover letter, replacing any existing one for this job."""
     with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM cover_letters WHERE job_id=?", (job_id,)
-        ).fetchone()
+        existing = conn.execute("SELECT id FROM cover_letters WHERE job_id=?", (job_id,)).fetchone()
         if existing:
             conn.execute(
                 "UPDATE cover_letters SET content=?, created_at=?, run_id=? WHERE id=?",
@@ -267,17 +265,14 @@ def upsert_cover_letter(job_id: int, content: str, run_id: int | None = None):
             )
         else:
             conn.execute(
-                "INSERT INTO cover_letters (job_id, run_id, content, created_at) "
-                "VALUES (?,?,?,?)",
+                "INSERT INTO cover_letters (job_id, run_id, content, created_at) VALUES (?,?,?,?)",
                 (job_id, run_id, content, _now()),
             )
 
 
 def get_cover_letter(job_id: int) -> str | None:
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT content FROM cover_letters WHERE job_id=?", (job_id,)
-        ).fetchone()
+        row = conn.execute("SELECT content FROM cover_letters WHERE job_id=?", (job_id,)).fetchone()
         return row["content"] if row else None
 
 
@@ -306,17 +301,15 @@ def set_job_status(job_id: int, status: str, notes: str = ""):
 
 def get_job_status(job_id: int) -> str:
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT status FROM job_statuses WHERE job_id=?", (job_id,)
-        ).fetchone()
+        row = conn.execute("SELECT status FROM job_statuses WHERE job_id=?", (job_id,)).fetchone()
         return row["status"] if row else "none"
 
 
-def get_all_statuses() -> dict[int, str]:
-    """Return {job_id: status} for all tracked jobs."""
+def get_all_statuses() -> dict[int, dict]:
+    """Return {job_id: {status, updated_at}} for all tracked jobs."""
     with get_db() as conn:
-        rows = conn.execute("SELECT job_id, status FROM job_statuses").fetchall()
-        return {r["job_id"]: r["status"] for r in rows}
+        rows = conn.execute("SELECT job_id, status, updated_at FROM job_statuses").fetchall()
+        return {r["job_id"]: {"status": r["status"], "updated_at": r["updated_at"]} for r in rows}
 
 
 def get_status_counts() -> dict[str, int]:
@@ -393,5 +386,11 @@ def get_jobs_for_api() -> list[dict]:
     scores = get_latest_scores()
     statuses = get_all_statuses()
     for job in scores:
-        job["status"] = statuses.get(job["id"], "none")
+        st = statuses.get(job["id"])
+        if st:
+            job["status"] = st["status"]
+            job["updated_at"] = st["updated_at"]
+        else:
+            job["status"] = "none"
+            job["updated_at"] = None
     return scores

@@ -722,6 +722,67 @@
       color: var(--mecha-gray-light);
     }
 
+    /* ── tabs ──────────────────────────────────────────── */
+    .status-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--hairline);
+      margin-bottom: 1rem;
+    }
+
+    .status-tab {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.6rem 1rem;
+      background: none;
+      border: none;
+      color: var(--mecha-silver);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all var(--transition-fast);
+    }
+
+    .status-tab:hover {
+      color: var(--mecha-white);
+    }
+
+    .status-tab.active {
+      color: var(--mecha-neon);
+      border-bottom-color: var(--mecha-neon);
+    }
+
+    .status-tab .tab-count {
+      font-size: 0.6rem;
+      background: var(--mecha-gray);
+      padding: 0.1rem 0.4rem;
+      border-radius: var(--radius-pill);
+      margin-left: 0.4rem;
+    }
+
+    .status-tab.active .tab-count {
+      background: var(--mecha-neon-dim);
+      color: var(--mecha-neon);
+    }
+
+    /* ── status dropdown ───────────────────────────────── */
+    .status-dropdown {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      padding: 0.3rem 0.5rem;
+      background: var(--mecha-gray);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      color: var(--mecha-white);
+      cursor: pointer;
+      outline: none;
+    }
+
+    .status-dropdown:focus {
+      border-color: var(--mecha-neon);
+    }
+
     /* ── responsive ────────────────────────────────────── */
     @media (max-width: 640px) {
       .header { flex-direction: column; align-items: flex-start; }
@@ -829,21 +890,26 @@
         <option value="review">Review</option>
         <option value="skip">Skip</option>
       </select>
-      <select id="filter-status" onchange="renderJobs()" class="filter-select">
-        <option value="all">All statuses</option>
-        <option value="none">Not started</option>
-        <option value="applied">Applied</option>
-        <option value="ignored">Ignored</option>
-        <option value="interviewed">Interviewed</option>
-        <option value="rejected">Rejected</option>
-        <option value="hired">Hired</option>
-      </select>
       <select id="sort-by" onchange="renderJobs()" class="filter-select">
+        <option value="recent">Recently Updated</option>
         <option value="score-desc">Score: High → Low</option>
         <option value="score-asc">Score: Low → High</option>
         <option value="company-asc">Company: A → Z</option>
       </select>
       <span id="job-count" class="filter-count"></span>
+    </div>
+
+    <!-- Status Tabs -->
+    <div class="status-tabs">
+      <button class="status-tab active" data-tab="none" onclick="setTab('none')">
+        Not Started <span class="tab-count" id="tab-count-none">0</span>
+      </button>
+      <button class="status-tab" data-tab="applied" onclick="setTab('applied')">
+        Applied <span class="tab-count" id="tab-count-applied">0</span>
+      </button>
+      <button class="status-tab" data-tab="ignored" onclick="setTab('ignored')">
+        Ignored <span class="tab-count" id="tab-count-ignored">0</span>
+      </button>
     </div>
 
     <!-- Jobs List -->
@@ -884,6 +950,27 @@
 
   <script>
     let allJobs = [];
+    let currentTab = 'none';
+
+    function setTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.status-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
+      });
+      renderJobs();
+    }
+
+    function updateTabCounts() {
+      const counts = { none: 0, applied: 0, ignored: 0 };
+      allJobs.forEach(j => {
+        const s = j.status || 'none';
+        if (s in counts) counts[s]++;
+        else counts.none++;
+      });
+      document.getElementById('tab-count-none').textContent = counts.none;
+      document.getElementById('tab-count-applied').textContent = counts.applied;
+      document.getElementById('tab-count-ignored').textContent = counts.ignored;
+    }
 
     /* ── utils ───────────────────────────────────────────── */
     const esc = s => String(s ?? '')
@@ -1045,6 +1132,7 @@
       try {
         const res = await fetch('/api/jobs');
         allJobs = await res.json();
+        updateTabCounts();
         renderJobs();
         updateFunnelSummary();
       } catch (e) {
@@ -1078,13 +1166,12 @@
 
     function renderJobs() {
       const verdict = document.getElementById('filter-verdict').value;
-      const status = document.getElementById('filter-status').value;
       const search = document.getElementById('search-input').value.toLowerCase();
       const sort = document.getElementById('sort-by').value;
       const tier = TIERS[tierIdx];
 
-      let jobs = allJobs.filter(j => verdict === 'all' || j.verdict === verdict);
-      if (status !== 'all') jobs = jobs.filter(j => (j.status || 'none') === status);
+      let jobs = allJobs.filter(j => (j.status || 'none') === currentTab);
+      if (verdict !== 'all') jobs = jobs.filter(j => j.verdict === verdict);
       if (search) jobs = jobs.filter(j => 
         (j.title || '').toLowerCase().includes(search) ||
         (j.company || '').toLowerCase().includes(search) ||
@@ -1092,7 +1179,9 @@
       );
       if (tier.min !== null) jobs = jobs.filter(j => (j.score ?? 0) >= tier.min);
       if (tier.max !== null) jobs = jobs.filter(j => (j.score ?? 0) <= tier.max);
-      if (sort === 'score-desc') jobs.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+      if (sort === 'recent') jobs.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
+      else if (sort === 'score-desc') jobs.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       else if (sort === 'score-asc') jobs.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
       else jobs.sort((a, b) => (a.company ?? '').localeCompare(b.company ?? ''));
 
@@ -1139,25 +1228,33 @@
             Cover Letter
           </button>
           <span class="spacer"></span>
-          <button onclick="toggleStatus('${esc(job.url ?? '')}','${esc(job.status ?? 'none')}')"
-            class="btn-card ${statusCls(job.status)}">
-            ${statusLabel(job.status)}
-          </button>
+          <select class="status-dropdown ${statusCls(job.status)}"
+                  onchange="changeStatus('${esc(job.url ?? '')}', this.value)">
+            <option value="none" ${(job.status || 'none') === 'none' ? 'selected' : ''}>Not Started</option>
+            <option value="applied" ${job.status === 'applied' ? 'selected' : ''}>Applied ✓</option>
+            <option value="ignored" ${job.status === 'ignored' ? 'selected' : ''}>Ignored</option>
+            <option value="interviewed" ${job.status === 'interviewed' ? 'selected' : ''}>Interviewed</option>
+            <option value="rejected" ${job.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+            <option value="hired" ${job.status === 'hired' ? 'selected' : ''}>Hired 🎉</option>
+          </select>
         </div>
       </div>`).join('');
     }
 
-    async function toggleStatus(url, current) {
-      const next = nextStatus(current);
+    async function changeStatus(url, newStatus) {
       try {
         const res = await fetch('/api/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, status: next })
+          body: JSON.stringify({ url, status: newStatus })
         });
         if (!res.ok) throw new Error('server error');
         const job = allJobs.find(j => j.url === url);
-        if (job) job.status = next;
+        if (job) {
+          job.status = newStatus;
+          job.updated_at = new Date().toISOString();
+        }
+        updateTabCounts();
         renderJobs();
       } catch {
         showError('Failed to save status. Try again.');
