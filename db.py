@@ -159,8 +159,15 @@ def finish_run(
 
 
 def get_active_run() -> dict | None:
-    """Return the currently active run, or None if no run is active."""
+    """Return the currently active run, or None if no run is active.
+    Stale runs (older than 30 minutes) are automatically cleaned up.
+    """
     with get_db() as conn:
+        # Clean up stale runs older than 30 minutes
+        conn.execute(
+            "UPDATE runs SET status='failed', error_message='stale' "
+            "WHERE status='running' AND datetime(started_at) < datetime('now', '-30 minutes')"
+        )
         row = conn.execute(
             "SELECT id, step, label, status FROM runs WHERE status='running' ORDER BY id DESC LIMIT 1"
         ).fetchone()
