@@ -690,6 +690,38 @@
       box-shadow: 0 0 0 4px var(--mecha-neon-dim);
     }
 
+    /* ── footer ────────────────────────────────────────── */
+    .footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--hairline);
+      text-align: center;
+    }
+
+    .footer-text {
+      font-family: var(--font-mono);
+      font-size: 0.58rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--mecha-gray-light);
+      line-height: 1.8;
+    }
+
+    .footer-text a {
+      color: var(--mecha-silver);
+      transition: color var(--transition-fast);
+    }
+
+    .footer-text a:hover {
+      color: var(--mecha-neon);
+    }
+
+    .footer-divider {
+      display: inline-block;
+      margin: 0 0.4rem;
+      color: var(--mecha-gray-light);
+    }
+
     /* ── responsive ────────────────────────────────────── */
     @media (max-width: 640px) {
       .header { flex-direction: column; align-items: flex-start; }
@@ -831,6 +863,20 @@
         <pre id="cl-content" class="modal-content"></pre>
         <textarea id="cl-editor" class="modal-content" style="display:none; resize: vertical; min-height: 300px;"></textarea>
       </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p class="footer-text">
+        Built on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">AI Job Hunt Agent</a>
+        <span class="footer-divider">&middot;</span>
+        Original by <a href="https://github.com/Kurt-Chan" target="_blank" rel="noopener noreferrer">Kurt Chan</a>
+        <span class="footer-divider">&middot;</span>
+        OpenCode Edition by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a>
+      </p>
+      <p class="footer-text" style="margin-top: 0.3rem;">
+        Free models only &middot; No API charges
+      </p>
     </div>
 
   </div>

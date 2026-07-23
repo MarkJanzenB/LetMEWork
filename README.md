@@ -1,34 +1,56 @@
-# AI Job Hunt Agent
+# AI Job Hunt Agent — OpenCode Edition
 
 [![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20project-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/kurtdeaustria)
 
-An autonomous job-hunting pipeline. It reads your resume, searches the web for matching remote roles, scores each posting against your actual profile with an AI agent, and drafts a tailored cover letter for every job worth applying to — all reviewable in a local web dashboard.
+An autonomous job-hunting pipeline. It reads your resume, searches the web for matching roles (remote, hybrid, and onsite), scores each posting against your actual profile with an AI agent, and drafts a tailored cover letter for every job worth applying to — all reviewable in a local web dashboard.
 
 It works for **any profession** — developer, designer, virtual assistant, writer, accountant, marketer. Everything (target roles, search queries, scoring, cover letters) is derived from your `resume.md`; nothing about your field is hardcoded.
+
+## Based on
+
+This project is built on the work of **[Kurt Chan](https://github.com/Kurt-Chan)** — the original creator of [AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper). The original project used the Claude CLI as its AI layer and provided the core pipeline architecture (resume parsing, Firecrawl scraping, job scoring, cover letter generation, and the FastAPI dashboard). Without that foundation, this version would not exist.
+
+This fork extends the original with:
+
+- **OpenCode as the AI engine** — replaces Claude CLI with OpenCode, using free models only to keep costs at zero
+- **Dynamic model health probing** — discovers and tests models across OpenRouter, Ollama (Gemma 4 cloud), and OpenCode built-in providers, caching results to `data/healthy_models.json`
+- **Batched job analysis** — splits large job sets into batches of 30 so free models can handle them without stalling
+- **Live streaming output** — real-time logs with heartbeats and dual stall detection (hard timeout + silence timeout)
+- **Inlined prompt context** — resume and job data are injected directly into prompts so models don't need file-read tools
+- **Mecha/spaceship UI redesign** — custom design system with Fraunces, Space Grotesk, and JetBrains Mono; neon lime accents, LED badges, and pill CTAs
+- **Work arrangement indicators** — Remote / Hybrid / Onsite badges on each job card
+- **Score range toggle** — cycles between All / 80+ / 60-79, filtering both display and bulk-apply
+- **Bulk apply with tab opening** — marks matching jobs as applied and opens their URLs
+- **Copy-to-clipboard** on cover letter modal
+- **SQLite database layer** — full pipeline run history in `data/jobs.db`
+
+All original credits and the MIT license apply. Please also support the original creator:
+
+[![ko-fi](https://img.shields.io/badge/Kurt_Chan-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/kurtdeaustria)
 
 ## How it works
 
 ```
 resume.md
-   │
-   ▼
+   |
+   v
 1. Build search config   AI extracts target roles, key skills, and
-   │                     search queries from your resume
-   ▼
+   |                     search queries from your resume
+   v
 2. Discover & scrape     Firecrawl runs the queries, then scrapes each
-   │                     result page and extracts individual postings
-   ▼
-3. Analyze & score       AI scores every posting 0–100 against your
-   │                     profile (stack match, seniority, remote signals,
-   │                     freshness, red flags) and gives a verdict
-   ▼
+   |                     result page and extracts individual postings
+   v
+3. Analyze & score       AI scores every posting 0-100 against your
+   |                     profile (skills, seniority, work arrangement,
+   |                     freshness, red flags) and gives a verdict
+   v
 4. Cover letters         For each "apply" verdict, AI drafts a short
-   │                     cover letter using a suggested angle per job
-   ▼
+   |                     cover letter using a suggested angle per job
+   v
 output/jobs.json + output/cover_letters/*.md
 ```
 
-A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with live progress (Server-Sent Events), score/verdict filtering, status tracking (none → applied → ignored → interviewed → rejected → hired), and a cover-letter viewer.
+A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with live progress (Server-Sent Events), score/verdict filtering, status tracking, and a cover-letter viewer.
 
 All data is stored in a SQLite database (`data/jobs.db`) with full history tracking. The previous JSON files are still supported for backward compatibility.
 
@@ -36,9 +58,9 @@ All data is stored in a SQLite database (`data/jobs.db`) with full history track
 
 - **Python + FastAPI** — pipeline orchestration and API
 - **[Firecrawl](https://firecrawl.dev)** — web search and structured scraping (LLM extraction with a JSON schema)
-- **[OpenCode](https://opencode.ai)** — open-source AI coding agent used as the AI layer for resume analysis, job scoring, and cover-letter writing via prompt files in `prompts/`
+- **[OpenCode](https://opencode.ai)** — open-source AI agent used as the AI layer for resume analysis, job scoring, and cover-letter writing via prompt files in `prompts/`
 - **Vanilla JS** — zero-build single-file UI
-- **FREE MODELS ONLY** — Rotates through free OpenRouter/Zen models to avoid charges
+- **FREE MODELS ONLY** — Rotates through free models across OpenRouter, Ollama, and OpenCode to avoid charges
 
 ## Setup
 
@@ -69,7 +91,7 @@ opencode providers login
 opencode providers login
 ```
 
-**⚠️ IMPORTANT:** This project is configured to use ONLY free models. Never change to paid models without understanding the cost implications.
+**Important:** This project is configured to use ONLY free models. Never change to paid models without understanding the cost implications. Model health is probed and cached automatically at `data/healthy_models.json`.
 
 See the [OpenCode docs](https://opencode.ai/docs/providers/) for all supported providers.
 
@@ -91,13 +113,10 @@ Edit `config.json` to change where the agent searches: `job_boards` is the list 
 
 ```bash
 # Web dashboard
-python server.py            # → http://127.0.0.1:8000
+python server.py            # -> http://127.0.0.1:8000
 
 # Or headless
 python agent.py
-
-# Migrate existing JSON data to database (one-time)
-python migrate_json_to_db.py
 ```
 
 Results are stored in the SQLite database (`data/jobs.db`) with full history. The `output/` directory still contains JSON files for backward compatibility.
@@ -110,9 +129,11 @@ The pipeline uses OpenCode's `run` command in non-interactive mode. A custom age
 opencode run "<prompt>" --agent job-agent --model <free-model>
 ```
 
-**Free Model Rotation:** The pipeline rotates through free models (nemotron-3-super, gemma-4, gpt-oss, etc.) to avoid rate limits and charges. Never use paid models.
+**Model Health Probing:** On first run, the system probes all available models across OpenRouter, Ollama, and OpenCode providers. Healthy models are cached to `data/healthy_models.json` (1-hour TTL). The pipeline rotates through healthy models indefinitely, retrying 3 times per model before skipping.
 
-The agent picks up `CLAUDE.md` automatically (OpenCode supports Claude Code's file conventions) for system-level instructions.
+**Batched Analysis:** Job scoring is split into batches of 30 jobs per model call to keep context small enough for free models. Each batch is analyzed separately and results are merged.
+
+**Live Streaming:** Output is streamed line-by-line with 30-second heartbeats, dual stall detection (10-minute hard cap + 90-second silence timeout), and partial output logging on failure.
 
 ## Tests
 
@@ -123,26 +144,31 @@ pytest
 ## Project structure
 
 ```
-agent.py              # 4-step pipeline (search config → scrape → analyze → cover letters)
+agent.py              # 4-step pipeline with model rotation and streaming
+config.py             # centralized configuration (thresholds, timeouts, models)
 config.json           # search sources: job boards + Reddit subreddit groups
-opencode.json         # OpenCode config: agent definition with read-only permissions
-CLAUDE.md             # agent context (loaded by OpenCode automatically)
-.opencode/agents/     # OpenCode agent definitions
-  job-agent.md        # read-only job hunting agent
+model_prober.py       # model health probing across providers
+db.py                 # SQLite database layer
 server.py             # FastAPI: /api/jobs, /api/status, /api/cover-letter, /api/run (SSE)
-ui/index.html         # single-file dashboard
-prompts/              # prompt files for each AI step
-resume.md             # your resume (gitignored — add your own)
-test_pipeline.py      # pipeline unit tests (AI/Firecrawl mocked)
+ui/index.html         # single-file mecha dashboard
+prompts/              # prompt files for each AI step (data inlined)
+opencode.json         # OpenCode config: agent definitions
+CLAUDE.md             # agent context (loaded by OpenCode automatically)
+resume.md             # your resume (gitignored)
+test_pipeline.py      # pipeline unit tests
 test_server.py        # API tests
-db.py                 # SQLite database layer (schema, CRUD, migration helpers)
-data/jobs.db          # SQLite database (auto-created on first run)
-migrate_json_to_db.py # One-time migration from JSON files to database
+data/jobs.db          # SQLite database (auto-created)
+data/healthy_models.json  # cached healthy models (auto-probed)
 ```
+
+## Credits
+
+- **[Kurt Chan](https://github.com/Kurt-Chan)** — Original creator of [AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper). Core pipeline architecture, FastAPI server, Firecrawl integration, and the original Claude CLI workflow.
+- **Mark Janzen Bandola** — OpenCode integration, dynamic model health probing, batched analysis, live streaming output, mecha UI redesign, work arrangement indicators, and the free-models-only architecture.
 
 ## Support
 
-I built this while job hunting as a broke developer — it runs on OpenCode (free models included) and Firecrawl's free tier precisely because I couldn't justify another bill. **This project uses ONLY free models to keep costs at zero.** If it helped you land interviews (or saved you a few hours of job-board scrolling), consider buying me a coffee:
+Built while job hunting as a broke developer — it runs on OpenCode (free models included) and Firecrawl's free tier precisely because I couldn't justify another bill. **This project uses ONLY free models to keep costs at zero.** If it helped you land interviews (or saved you a few hours of job-board scrolling), consider buying me a coffee:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kurtdeaustria)
 
