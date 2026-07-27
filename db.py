@@ -8,7 +8,6 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 
 import config
 
@@ -315,16 +314,6 @@ def get_cover_letter(job_id: int) -> str | None:
         return row["content"] if row else None
 
 
-def update_cover_letter(job_id: int, content: str) -> bool:
-    """Update an existing cover letter. Returns True if updated."""
-    with get_db() as conn:
-        cur = conn.execute(
-            "UPDATE cover_letters SET content=?, created_at=? WHERE job_id=?",
-            (content, _now(), job_id),
-        )
-        return cur.rowcount > 0
-
-
 # ── job statuses ──────────────────────────────────────────
 def set_job_status(job_id: int, status: str, notes: str = ""):
     if status not in VALID_STATUSES:
@@ -421,23 +410,6 @@ def save_pipeline_output(scored_jobs: list[dict], run_id: int | None = None):
         )
         # Upsert the score
         upsert_score(job_id, job_data, run_id)
-
-
-def save_cover_letters(scored_jobs: list[dict], run_id: int | None = None):
-    """Read cover letter files from disk and save to DB for given jobs."""
-    from agent import _slug
-
-    cl_dir = Path("output/cover_letters")
-    for job_data in scored_jobs:
-        company = job_data.get("company") or "unknown"
-        title = job_data.get("title") or "role"
-        slug = f"{_slug(company)}__{_slug(title)}"
-        cl_path = cl_dir / f"{slug}.md"
-        if cl_path.exists():
-            job_id = get_job_id_by_url(job_data.get("url", ""))
-            if job_id:
-                content = cl_path.read_text(encoding="utf-8")
-                upsert_cover_letter(job_id, content, run_id)
 
 
 # ── API response builder ─────────────────────────────────

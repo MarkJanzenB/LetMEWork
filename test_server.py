@@ -186,16 +186,11 @@ def test_post_status_rejects_invalid_value(client, tmp_path):
     assert res.status_code == 400
 
 
-def test_cover_letter_found(client, tmp_path):
-    import db
-
-    db.init_db()
-
-    # Insert a job
+def _insert_job(db, url="https://example.com/job1", score=None):
     job_id = db.upsert_job(
         {
-            "title": "Frontend Engineer (Contract) - Remote",
-            "url": "https://example.com/job1",
+            "title": "Frontend Engineer",
+            "url": url,
             "company": "Tech Holding",
             "location": "Remote",
             "description": "",
@@ -203,17 +198,76 @@ def test_cover_letter_found(client, tmp_path):
             "posted_date": "",
         }
     )
+    if score is not None:
+        db.upsert_score(
+            job_id,
+            {
+                "score": score,
+                "verdict": "review",
+                "work_arrangement": "",
+                "match_reasons": [],
+                "red_flags": [],
+                "suggested_angle": "",
+            },
+        )
+    return job_id
 
-    # Insert a cover letter
+
+def test_cover_letter_found(client):
+    import db
+
+    job_id = _insert_job(db)
     db.upsert_cover_letter(job_id, "Dear hiring manager,")
 
-    res = client.get(
-        "/api/cover-letter?company=Tech+Holding&title=Frontend+Engineer+%28Contract%29+-+Remote"
-    )
+    res = client.get("/api/cover-letter?url=https%3A%2F%2Fexample.com%2Fjob1")
     assert res.status_code == 200
     assert "Dear hiring manager" in res.json()["content"]
 
 
 def test_cover_letter_not_found(client):
-    res = client.get("/api/cover-letter?company=Nobody&title=Nothing")
+    res = client.get("/api/cover-letter?url=https%3A%2F%2Fnowhere.example")
+    assert res.status_code == 404
+
+
+def test_cover_letter_missing_for_existing_job(client):
+    import db
+
+    _insert_job(db)
+    res = client.get("/api/cover-letter?url=https%3A%2F%2Fexample.com%2Fjob1")
+    assert res.status_code == 404
+
+
+def test_put_cover_letter_saves_edit(client):
+    import db
+
+    job_id = _insert_job(db)
+    res = client.put(
+        "/api/cover-letter",
+        json={"url": "https://example.com/job1", "content": "Edited letter"},
+    )
+    assert res.status_code == 200
+    assert db.get_cover_letter(job_id) == "Edited letter"
+
+
+def test_generate_cover_letter_on_demand(client):
+    import db
+    from unittest.mock import patch
+
+    job_id = _insert_job(db, score=65)
+
+    with (
+        patch("agent.generate_cover_letter", return_value="Generated letter"),
+        patch("agent.load_cached_profile", return_value=None),
+    ):
+        res = client.post(
+            "/api/generate-cover-letter", json={"url": "https://example.com/job1"}
+        )
+
+    assert res.status_code == 200
+    assert res.json()["content"] == "Generated letter"
+    assert db.get_cover_letter(job_id) == "Generated letter"
+
+
+def test_generate_cover_letter_unknown_job(client):
+    res = client.post("/api/generate-cover-letter", json={"url": "https://nowhere.example"})
     assert res.status_code == 404

@@ -697,27 +697,45 @@ def _slug(text: str, max_len: int = 40) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:max_len]
 
 
-def generate_cover_letters(jobs: list[dict], profile: dict | None = None):
-    out_dir = Path("output/cover_letters")
-    out_dir.mkdir(parents=True, exist_ok=True)
+def generate_cover_letter(job: dict, profile: dict | None = None) -> str:
+    """Generate one cover letter for a job dict. Returns the letter text."""
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
     profile_json = json.dumps(profile, indent=2) if profile else ""
+    context = (
+        f"=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ===\n"
+        f"\n=== RAW RESUME ===\n{resume}\n=== END RESUME ===\n"
+        f"\n---JOB---\n{json.dumps(job, indent=2)}"
+    )
+    return run_opencode("prompts/cover_letter.md", context=context)
+
+
+def load_cached_profile() -> dict | None:
+    """Return the cached resume profile, or None if it hasn't been extracted yet."""
+    profile_path = Path("output/resume_profile.json")
+    if profile_path.exists():
+        return json.loads(profile_path.read_text(encoding="utf-8"))
+    return None
+
+
+def generate_cover_letters(
+    jobs: list[dict], profile: dict | None = None, run_id: int | None = None
+):
+    """Generate cover letters for many jobs; save each to DB (by URL) and disk."""
+    out_dir = Path("output/cover_letters")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     for job in jobs:
         company = job.get("company") or "unknown"
         title = job.get("title") or "role"
         slug = f"{_slug(company)}__{_slug(title)}"
-        out_path = out_dir / f"{slug}.md"
 
         print(f"  Writing cover letter: {company} — {title[:50]}...")
         try:
-            context = (
-                f"=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ===\n"
-                f"\n=== RAW RESUME ===\n{resume}\n=== END RESUME ===\n"
-                f"\n---JOB---\n{json.dumps(job, indent=2)}"
-            )
-            letter = run_opencode("prompts/cover_letter.md", context=context)
-            out_path.write_text(letter, encoding="utf-8")
+            letter = generate_cover_letter(job, profile)
+            (out_dir / f"{slug}.md").write_text(letter, encoding="utf-8")
+            job_id = db.get_job_id_by_url(job.get("url", ""))
+            if job_id:
+                db.upsert_cover_letter(job_id, letter, run_id)
         except Exception as e:
             print(f"  Failed for {slug}: {e}")
 
@@ -777,8 +795,7 @@ def run_pipeline(on_progress=None) -> dict:
         good_jobs = [j for j in all_jobs if j.get("score", 0) >= config.THRESHOLD]
         apply_jobs = [j for j in good_jobs if j.get("verdict") == "apply"]
         if apply_jobs:
-            generate_cover_letters(apply_jobs, profile)
-            db.save_cover_letters(apply_jobs, run_id)
+            generate_cover_letters(apply_jobs, profile, run_id)
         emit(4, "Generating cover letters", "done")
 
         db.finish_run(run_id, jobs_found=len(all_jobs), above_threshold=len(good_jobs))

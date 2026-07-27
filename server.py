@@ -109,23 +109,45 @@ async def bulk_apply(
 
 
 @app.get("/api/cover-letter")
-async def get_cover_letter(company: str = Query(...), title: str = Query(...)):
-    from agent import _slug
-
-    slug = f"{_slug(company)}__{_slug(title)}"
+async def get_cover_letter(url: str = Query(...)):
     db.init_db()
-
-    with db.get_db() as conn:
-        row = conn.execute(
-            "SELECT cl.content FROM cover_letters cl "
-            "JOIN jobs j ON cl.job_id = j.id "
-            "WHERE j.url LIKE ? OR j.title LIKE ?",
-            (f"%{slug}%", f"%{title}%"),
-        ).fetchone()
-
-    if not row:
+    job_id = db.get_job_id_by_url(url)
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    content = db.get_cover_letter(job_id)
+    if content is None:
         raise HTTPException(status_code=404, detail="Cover letter not found")
-    return {"content": row["content"]}
+    return {"content": content}
+
+
+class CoverLetterBody(BaseModel):
+    url: str
+    content: str = ""
+
+
+@app.post("/api/generate-cover-letter")
+def generate_cover_letter_endpoint(body: CoverLetterBody):
+    """Generate a cover letter on demand for one job.
+
+    Sync def on purpose: FastAPI runs it in a threadpool, so the minutes-long
+    model call doesn't block the event loop.
+    """
+    db.init_db()
+    job_id = db.get_job_id_by_url(body.url)
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = next((j for j in db.get_jobs_for_api() if j["id"] == job_id), None)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job has no score data yet")
+
+    import agent
+
+    try:
+        content = agent.generate_cover_letter(job, agent.load_cached_profile())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Generation failed: {exc}")
+    db.upsert_cover_letter(job_id, content)
+    return {"content": content}
 
 
 @app.get("/api/status-counts")
@@ -218,24 +240,12 @@ async def export_csv(
 
 
 @app.put("/api/cover-letter")
-async def update_cover_letter(
-    company: str = Query(...), title: str = Query(...), content: str = Query(...)
-):
-    from agent import _slug
-
-    slug = f"{_slug(company)}__{_slug(title)}"
+async def update_cover_letter(body: CoverLetterBody):
     db.init_db()
-
-    with db.get_db() as conn:
-        row = conn.execute(
-            "SELECT j.id FROM jobs j WHERE j.url LIKE ? OR j.title LIKE ?",
-            (f"%{slug}%", f"%{title}%"),
-        ).fetchone()
-
-    if not row:
+    job_id = db.get_job_id_by_url(body.url)
+    if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    db.update_cover_letter(row["id"], content)
+    db.upsert_cover_letter(job_id, body.content)
     return {"ok": True}
 
 
