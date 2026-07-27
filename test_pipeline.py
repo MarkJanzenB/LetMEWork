@@ -180,6 +180,54 @@ def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
     assert result["above_threshold"] == 0
 
 
+def test_run_pipeline_skips_cover_letters_by_default(tmp_path, monkeypatch):
+    import agent
+    import config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config, "GENERATE_COVER_LETTERS_IN_PIPELINE", False)
+    (tmp_path / "resume.md").write_text("# Resume")
+    (tmp_path / "output").mkdir()
+
+    mock_analyzed = [
+        {
+            "title": "Dev",
+            "company": "Co",
+            "url": "https://example.com",
+            "score": 85,
+            "verdict": "apply",
+            "match_reasons": [],
+            "red_flags": [],
+            "suggested_angle": "",
+        }
+    ]
+
+    with (
+        patch.object(agent, "extract_resume_profile", return_value={"name": "Test"}),
+        patch.object(agent, "build_search_config", return_value={"search_queries": ["q"]}),
+        patch.object(
+            agent,
+            "scrape_jobs",
+            return_value=[
+                {
+                    "title": "Dev",
+                    "company": "Co",
+                    "location": "Remote",
+                    "url": "https://example.com",
+                    "description": "",
+                    "posted_date": "",
+                    "source": "example.com",
+                }
+            ],
+        ),
+        patch.object(agent, "analyze_jobs", return_value=mock_analyzed),
+        patch.object(agent, "generate_cover_letters") as mock_gen,
+    ):
+        agent.run_pipeline()
+
+    mock_gen.assert_not_called()
+
+
 def test_run_opencode_json_strips_markdown_fences():
     import agent
 
@@ -217,10 +265,13 @@ def test_run_opencode_json_still_fails_loudly_on_no_json():
 
 def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
     import agent
+    import config
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config, "writable_config_path", lambda: tmp_path / "nope.json")
+    monkeypatch.setattr(config, "_REPO_CONFIG", tmp_path / "nope2.json")
     cfg = agent.load_config()
     assert "linkedin.com/jobs" in cfg["job_boards"]
+    assert "onlinejobs.ph" not in cfg["job_boards"]
     assert any(g["name"] == "Community" for g in cfg["reddit_groups"])
 
 
@@ -228,12 +279,10 @@ def test_load_config_overrides_from_file(tmp_path, monkeypatch):
     import agent
     import config
 
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.json").write_text(json.dumps({"job_boards": ["remoteok.com"]}))
-    # Override CONFIG_FILE to point to the temp directory
-    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text(json.dumps({"job_boards": ["indeed.com"]}))
+    monkeypatch.setattr(config, "writable_config_path", lambda: tmp_path / "config.json")
     cfg = agent.load_config()
-    assert cfg["job_boards"] == ["remoteok.com"]
+    assert cfg["job_boards"] == ["indeed.com"]
     assert cfg["reddit_groups"] == config.DEFAULT_CONFIG["reddit_groups"]
 
 

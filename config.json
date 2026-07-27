@@ -4,8 +4,7 @@
     "indeed.com",
     "wellfound.com",
     "glassdoor.com",
-    "jobstreet.com",
-    "onlinejobs.ph"
+    "jobstreet.com"
   ],
   "reddit_groups": [
     { "name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"] },

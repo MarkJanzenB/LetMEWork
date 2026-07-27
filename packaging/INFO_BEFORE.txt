@@ -1,0 +1,27 @@
+Welcome to Let Me Work (pre-release beta)
+
+This installer puts Let Me Work on your PC, then installs missing
+dependencies from official sources (network required):
+
+  • Node.js LTS — via winget / Chocolatey / Scoop / nodejs.org MSI (if needed)
+  • OpenCode — via npm (`npm install -g opencode-ai`) or Scoop / Chocolatey
+
+It does NOT bundle a third-party opencode.exe inside this Setup.
+Python libraries are already inside LetMeWork.exe.
+
+What you still provide
+  1. Firecrawl API key (required) — https://www.firecrawl.dev/app/api-keys
+  2. Your resume (paste markdown or upload a Word→PDF)
+  3. Optional: OpenRouter key — https://openrouter.ai/keys
+
+After setup: Settings → Job boards — choose Indeed, JobStreet,
+OnlineJobs.ph (JobsPH), LinkedIn, etc. OnlineJobs.ph is off by default.
+
+Privacy
+  • API keys stay under your Windows AppData folder on THIS PC.
+  • Keys are never uploaded to the publisher and are not stored in the job database.
+  • Your resume PDF (if uploaded) stays on this PC; the AI uses extracted text.
+
+Windows SmartScreen may warn on unsigned pre-releases from new publishers.
+That is expected. Choose "More info" → "Run anyway" if you trust this build.
+Node / OpenCode installers may also show their own prompts or UAC.

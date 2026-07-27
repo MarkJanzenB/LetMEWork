@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     description     TEXT NOT NULL DEFAULT '',
     source          TEXT NOT NULL DEFAULT '',
     posted_date     TEXT NOT NULL DEFAULT '',
-    first_seen_run  INTEGER REFERENCES runs(id)
+    first_seen_run  INTEGER REFERENCES runs(id),
+    deleted_at      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scores (
@@ -116,16 +117,20 @@ def init_db():
     with get_db() as conn:
         conn.executescript(_SCHEMA)
         # Migrations for existing databases
-        for col, typedef in [
-            ("step", "INTEGER DEFAULT 0"),
-            ("label", "TEXT DEFAULT ''"),
-            ("viewed_at", "TEXT"),
+        for col, typedef, table in [
+            ("step", "INTEGER DEFAULT 0", "runs"),
+            ("label", "TEXT DEFAULT ''", "runs"),
+            ("viewed_at", "TEXT", "job_statuses"),
+            ("deleted_at", "TEXT", "jobs"),
         ]:
-            table = "runs" if col in ("step", "label") else "job_statuses"
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Index after ALTER — existing DBs lack deleted_at until migration runs
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_deleted ON jobs(deleted_at)"
+        )
 
 
 # ── timestamp helper ──────────────────────────────────────
@@ -189,16 +194,34 @@ def get_runs() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_last_completed_run() -> dict | None:
+    """Return the most recent completed run, or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, finished_at, jobs_found, above_threshold, started_at "
+            "FROM runs WHERE status='completed' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ── jobs ──────────────────────────────────────────────────
 def upsert_job(job: dict, run_id: int | None = None) -> int:
-    """Insert or update a job by URL. Returns the job ID."""
+    """Insert or update a job by URL. Returns the job ID.
+
+    Soft-deleted rows are left alone (still returns their id) so callers can
+    decide to skip scoring — they are never undeleted by a scrape.
+    """
     url = job.get("url", "")
     if not url:
         return 0
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM jobs WHERE url=?", (url,)).fetchone()
+        existing = conn.execute(
+            "SELECT id, deleted_at FROM jobs WHERE url=?", (url,)
+        ).fetchone()
         if existing:
             jid = existing["id"]
+            if existing["deleted_at"]:
+                return jid  # keep soft-deleted; do not refresh fields
             conn.execute(
                 "UPDATE jobs SET title=COALESCE(NULLIF(?,''),title), "
                 "company=COALESCE(NULLIF(?,''),company), "
@@ -233,6 +256,45 @@ def upsert_job(job: dict, run_id: int | None = None) -> int:
             )
             jid = cur.lastrowid
         return jid
+
+
+def soft_delete_job_by_url(url: str) -> bool:
+    """Soft-delete a job so it stays hidden and is skipped on future scrapes."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE jobs SET deleted_at=? WHERE url=? AND deleted_at IS NULL",
+            (_now(), url),
+        )
+        return cur.rowcount > 0
+
+
+def restore_job_by_url(url: str) -> bool:
+    """Undo a soft-delete."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE jobs SET deleted_at=NULL WHERE url=? AND deleted_at IS NOT NULL",
+            (url,),
+        )
+        return cur.rowcount > 0
+
+
+def is_url_soft_deleted(url: str) -> bool:
+    if not url:
+        return False
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM jobs WHERE url=? AND deleted_at IS NOT NULL", (url,)
+        ).fetchone()
+        return row is not None
+
+
+def get_soft_deleted_urls() -> list[str]:
+    """URLs that must be treated as seen during scrape dedupe."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT url FROM jobs WHERE deleted_at IS NOT NULL"
+        ).fetchall()
+        return [r["url"] for r in rows]
 
 
 def get_job_id_by_url(url: str) -> int | None:
@@ -273,13 +335,16 @@ def get_latest_scores() -> list[dict]:
                    j.posted_date,
                    s.score, s.verdict, s.work_arrangement,
                    s.match_reasons, s.red_flags, s.suggested_angle,
-                   s.created_at AS scored_at
+                   s.created_at AS scored_at,
+                   EXISTS(SELECT 1 FROM cover_letters cl WHERE cl.job_id = j.id)
+                     AS has_cover_letter
             FROM jobs j
             JOIN scores s ON s.id = (
                 SELECT s2.id FROM scores s2
                 WHERE s2.job_id = j.id
                 ORDER BY s2.id DESC LIMIT 1
             )
+            WHERE j.deleted_at IS NULL
             ORDER BY s.score DESC
         """).fetchall()
         results = []
@@ -287,6 +352,7 @@ def get_latest_scores() -> list[dict]:
             d = dict(r)
             d["match_reasons"] = json.loads(d["match_reasons"])
             d["red_flags"] = json.loads(d["red_flags"])
+            d["has_cover_letter"] = bool(d["has_cover_letter"])
             results.append(d)
         return results
 
@@ -393,12 +459,17 @@ def insert_raw_jobs(raw_jobs: list[dict], run_id: int | None = None):
 
 # ── convenience: save full pipeline output ────────────────
 def save_pipeline_output(scored_jobs: list[dict], run_id: int | None = None):
-    """Save a list of scored job dicts (from AI analysis) into the DB."""
+    """Save a list of scored job dicts (from AI analysis) into the DB.
+
+    Soft-deleted URLs are skipped so a re-scrape never resurrects them.
+    """
     for job_data in scored_jobs:
-        # Upsert the job
+        url = job_data.get("url", "")
+        if not url or is_url_soft_deleted(url):
+            continue
         job_id = upsert_job(
             {
-                "url": job_data.get("url", ""),
+                "url": url,
                 "title": job_data.get("title", ""),
                 "company": job_data.get("company", ""),
                 "location": job_data.get("location", ""),
@@ -408,7 +479,6 @@ def save_pipeline_output(scored_jobs: list[dict], run_id: int | None = None):
             },
             run_id,
         )
-        # Upsert the score
         upsert_score(job_id, job_data, run_id)
 
 

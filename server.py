@@ -2,19 +2,23 @@ import csv
 import io
 import json
 import logging
+import os
 import queue
 import signal
 import sys
 import threading
+import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import config
 import db
+import user_data
 
 logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
 logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
@@ -22,6 +26,8 @@ logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config.bootstrap()
+    db.init_db()
     yield
 
 
@@ -30,9 +36,17 @@ app = FastAPI(lifespan=lifespan)
 run_lock = threading.Lock()
 
 
+def _ui_index() -> Path:
+    return config.BASE_DIR / "ui" / "index.html"
+
+
 @app.get("/")
 async def index():
-    return FileResponse("ui/index.html")
+    path = _ui_index()
+    if not path.is_file():
+        # Dev/tests: cwd-relative fallback
+        path = Path("ui/index.html")
+    return FileResponse(path)
 
 
 @app.get("/api/jobs")
@@ -67,10 +81,43 @@ async def mark_viewed(body: StatusUpdate):
     return {"ok": True}
 
 
+class UrlBody(BaseModel):
+    url: str
+
+
+@app.post("/api/delete")
+async def soft_delete(body: UrlBody):
+    """Soft-delete a job. Future scrapes skip this URL (dedupe)."""
+    db.init_db()
+    if not db.get_job_id_by_url(body.url):
+        raise HTTPException(status_code=404, detail="Job not found")
+    db.soft_delete_job_by_url(body.url)
+    return {"ok": True}
+
+
+@app.post("/api/restore")
+async def restore_job(body: UrlBody):
+    """Undo a soft-delete."""
+    db.init_db()
+    if not db.restore_job_by_url(body.url):
+        raise HTTPException(status_code=404, detail="Deleted job not found")
+    return {"ok": True}
+
+
 @app.get("/api/run-status")
 async def get_run_status():
     db.init_db()
     run = db.get_active_run()
+    last = db.get_last_completed_run()
+    last_payload = (
+        {
+            "finished_at": last.get("finished_at"),
+            "jobs_found": last.get("jobs_found", 0),
+            "above_threshold": last.get("above_threshold", 0),
+        }
+        if last
+        else None
+    )
     if run:
         return JSONResponse(
             {
@@ -78,9 +125,175 @@ async def get_run_status():
                 "step": run.get("step", 0),
                 "label": run.get("label", ""),
                 "status": run.get("status", "running"),
+                "last_run": last_payload,
             }
         )
-    return JSONResponse({"active": False})
+    return JSONResponse({"active": False, "last_run": last_payload})
+
+
+@app.get("/api/health")
+async def health():
+    """Liveness + DB + last completed run — used when the UI suspects connection loss."""
+    try:
+        db.init_db()
+        with db.get_db() as conn:
+            conn.execute("SELECT 1").fetchone()
+        last = db.get_last_completed_run()
+        return {
+            "ok": True,
+            "db": "ok",
+            "version": config.APP_VERSION,
+            "last_run": (
+                {
+                    "finished_at": last.get("finished_at"),
+                    "jobs_found": last.get("jobs_found", 0),
+                    "above_threshold": last.get("above_threshold", 0),
+                }
+                if last
+                else None
+            ),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"unhealthy: {exc}")
+
+
+# ── setup / onboarding (keys stay on this PC only) ───────
+
+
+class KeysBody(BaseModel):
+    firecrawl_key: str | None = None
+    openrouter_key: str | None = None
+
+
+class ResumeBody(BaseModel):
+    content: str
+
+
+class SettingsBody(BaseModel):
+    onboarding_complete: bool | None = None
+    prefer_free_models: bool | None = None
+
+
+@app.get("/api/setup/status")
+async def setup_status():
+    return user_data.setup_status()
+
+
+@app.post("/api/setup/keys")
+async def setup_keys(body: KeysBody):
+    """Save API keys to AppData .env only — never to the job database."""
+    user_data.write_env_keys(
+        firecrawl_key=body.firecrawl_key,
+        openrouter_key=body.openrouter_key,
+    )
+    return user_data.setup_status()
+
+
+@app.get("/api/setup/resume")
+async def get_resume():
+    status = user_data.setup_status()
+    path = Path(status["resume_path"])
+    content = path.read_text(encoding="utf-8") if path.exists() else ""
+    return {
+        "content": content,
+        "path": str(path),
+        "has_resume_pdf": status.get("has_resume_pdf", False),
+        "resume_pdf_path": status.get("resume_pdf_path", ""),
+        "resume_pdf_name": status.get("resume_pdf_name", ""),
+    }
+
+
+@app.post("/api/setup/resume")
+async def save_resume(body: ResumeBody):
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Resume cannot be empty")
+    path = user_data.save_resume_text(body.content)
+    config.bootstrap()
+    return {"ok": True, "path": str(path)}
+
+
+@app.post("/api/setup/resume-pdf")
+async def upload_resume_pdf(file: UploadFile = File(...)):
+    """Keep the original PDF on disk; extract text into resume.md for the AI."""
+    name = file.filename or "resume.pdf"
+    if not name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Please upload a .pdf file")
+    data = await file.read()
+    try:
+        result = user_data.save_resume_pdf(data, original_name=name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {exc}")
+    config.bootstrap()
+    return {"ok": True, **result}
+
+
+class SourcesBody(BaseModel):
+    job_boards: list[str]
+
+
+@app.get("/api/setup/sources")
+async def get_sources():
+    return config.sources_payload()
+
+
+@app.post("/api/setup/sources")
+async def save_sources(body: SourcesBody):
+    try:
+        config.save_job_boards(body.job_boards)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return config.sources_payload()
+
+
+@app.post("/api/setup/complete")
+async def setup_complete(body: SettingsBody = SettingsBody()):
+    status = user_data.setup_status()
+    if not status["has_firecrawl"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Firecrawl API key is required before finishing setup",
+        )
+    if not status["has_resume"]:
+        raise HTTPException(status_code=400, detail="Add your resume before finishing setup")
+    if not status["opencode_found"]:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenCode not found — reinstall the app or install OpenCode",
+        )
+    updates = {"onboarding_complete": True}
+    if body.prefer_free_models is not None:
+        updates["prefer_free_models"] = body.prefer_free_models
+    user_data.save_settings(updates)
+    return user_data.setup_status()
+
+
+@app.post("/api/setup/settings")
+async def setup_settings(body: SettingsBody):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        user_data.save_settings(updates)
+    return user_data.setup_status()
+
+
+def _require_ready_to_scrape() -> None:
+    status = user_data.setup_status()
+    if not status["has_firecrawl"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Add your Firecrawl API key in Settings before running the agent.",
+        )
+    if not status["opencode_found"]:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenCode not found. Reinstall Let Me Work or install OpenCode.",
+        )
+    if not status["has_resume"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Add your resume in Settings before running the agent.",
+        )
 
 
 @app.post("/api/bulk-apply")
@@ -155,7 +368,7 @@ async def get_status_counts():
     db.init_db()
     counts = db.get_status_counts()
     # Ensure all statuses are present
-    for status in ["none", "applied", "ignored", "interviewed", "rejected", "hired"]:
+    for status in ["none", "applied", "ignored", "interviewed", "rejected", "hired", "closed"]:
         if status not in counts:
             counts[status] = 0
     return counts
@@ -251,6 +464,16 @@ async def update_cover_letter(body: CoverLetterBody):
 
 @app.get("/api/run")
 async def run_agent():
+    try:
+        _require_ready_to_scrape()
+    except HTTPException as exc:
+        detail = exc.detail
+
+        async def _blocked():
+            yield f"data: {json.dumps({'step': 'error', 'message': detail})}\n\n"
+
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
     if not run_lock.acquire(blocking=False):
 
         async def _busy():
@@ -263,7 +486,36 @@ async def run_agent():
     def _on_progress(step: int, label: str, status: str) -> None:
         q.put({"step": step, "label": label, "status": status})
 
+    class _LogTee:
+        """Mirror stdout/stderr to the SSE queue (and still print to the console)."""
+
+        def __init__(self, real):
+            self._real = real
+            self._buf = ""
+
+        def write(self, s):
+            if not isinstance(s, str):
+                s = str(s)
+            self._real.write(s)
+            self._real.flush()
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                line = line.rstrip()
+                if line:
+                    q.put({"step": "log", "line": line})
+
+        def flush(self):
+            self._real.flush()
+
+        def isatty(self):
+            return False
+
     def _pipeline_thread() -> None:
+        old_out, old_err = sys.stdout, sys.stderr
+        tee = _LogTee(old_out)
+        sys.stdout = tee
+        sys.stderr = _LogTee(old_err)
         try:
             from agent import run_pipeline
 
@@ -272,6 +524,7 @@ async def run_agent():
         except Exception as exc:
             q.put({"step": "error", "message": str(exc)})
         finally:
+            sys.stdout, sys.stderr = old_out, old_err
             run_lock.release()
             q.put(None)
 
@@ -297,5 +550,11 @@ if __name__ == "__main__":
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
-    print("  Server running at http://127.0.0.1:8000\n")
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error")
+    config.bootstrap()
+    host, port = "127.0.0.1", int(os.environ.get("PORT", "8000"))
+    url = f"http://{host}:{port}"
+    print(f"  Let Me Work {config.APP_VERSION}")
+    print(f"  Server running at {url}\n")
+    if user_data.is_frozen() or "--open" in sys.argv:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    uvicorn.run(app, host=host, port=port, log_level="error")

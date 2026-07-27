@@ -9,13 +9,12 @@ from itertools import zip_longest
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-from dotenv import load_dotenv
 from firecrawl import FirecrawlApp
 
 import db
 import config
 
-load_dotenv()
+config.bootstrap()
 
 # ── free model rotation state ──────────────────────────
 import model_prober
@@ -114,12 +113,8 @@ JOB_EXTRACT_SCHEMA = {
 
 # ── search sources config ─────────────────────────────────
 def load_config() -> dict:
-    """Return the search-sources config: DEFAULT_CONFIG overridden by any
-    top-level keys present in config.json."""
-    cfg = dict(config.DEFAULT_CONFIG)
-    if config.CONFIG_FILE.exists():
-        cfg.update(json.loads(config.CONFIG_FILE.read_text(encoding="utf-8")))
-    return cfg
+    """Return the search-sources config (AppData / repo override of defaults)."""
+    return config.load_search_config()
 
 
 def _sources_context(cfg: dict) -> str:
@@ -308,17 +303,27 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
         f"  Discovered {len(pages)} candidate pages; scraping up to {config.MAX_PAGES_TO_SCRAPE}..."
     )
 
-    seen_urls: set[str] = set()
+    # Seed with soft-deleted URLs so ignored/rejected removals stay gone
+    deleted_keys = {_dedup_key(u) for u in db.get_soft_deleted_urls()}
+    seen_urls: set[str] = set(deleted_keys)
+    skipped_deleted = 0
     jobs: list[dict] = []
     for page in pages[: config.MAX_PAGES_TO_SCRAPE]:
         print(f"  Scraping: {page['url'][:70]}...")
         for job in extract_postings(app, page):
             url = job["url"]
-            if not url or _dedup_key(url) in seen_urls:
+            if not url:
                 continue
-            seen_urls.add(_dedup_key(url))
+            key = _dedup_key(url)
+            if key in seen_urls:
+                if key in deleted_keys:
+                    skipped_deleted += 1
+                continue
+            seen_urls.add(key)
             jobs.append(job)
 
+    if skipped_deleted:
+        print(f"  Skipped {skipped_deleted} soft-deleted posting(s)")
     return jobs
 
 
@@ -381,14 +386,16 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
     import threading
     import time
 
-    prompt = Path(prompt_file).read_text(encoding="utf-8")
+    prompt = config.resolve_prompt(prompt_file).read_text(encoding="utf-8")
     if context:
         prompt = prompt + "\n" + context
-    opencode_exe = shutil.which("opencode")
+    import user_data
+
+    opencode_exe = user_data.find_opencode()
     if not opencode_exe:
         raise RuntimeError(
-            "opencode CLI not found on PATH — install opencode and make sure "
-            "`opencode` runs from a terminal."
+            "opencode CLI not found — reinstall Let Me Work (includes OpenCode) "
+            "or install OpenCode and ensure it is on PATH."
         )
 
     if not model:
@@ -791,12 +798,13 @@ def run_pipeline(on_progress=None) -> dict:
         db.save_pipeline_output(all_jobs, run_id)
         emit(3, "Analyzing & scoring", "done")
 
-        emit(4, "Generating cover letters", "running")
         good_jobs = [j for j in all_jobs if j.get("score", 0) >= config.THRESHOLD]
-        apply_jobs = [j for j in good_jobs if j.get("verdict") == "apply"]
-        if apply_jobs:
-            generate_cover_letters(apply_jobs, profile, run_id)
-        emit(4, "Generating cover letters", "done")
+        emit(4, "Cover letters (on demand)", "running")
+        if config.GENERATE_COVER_LETTERS_IN_PIPELINE:
+            apply_jobs = [j for j in good_jobs if j.get("verdict") == "apply"]
+            if apply_jobs:
+                generate_cover_letters(apply_jobs, profile, run_id)
+        emit(4, "Cover letters (on demand)", "done")
 
         db.finish_run(run_id, jobs_found=len(all_jobs), above_threshold=len(good_jobs))
         return {"total": len(all_jobs), "above_threshold": len(good_jobs)}

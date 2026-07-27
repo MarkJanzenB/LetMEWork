@@ -4,6 +4,8 @@ fastapi
 uvicorn[standard]
 pytest
 httpx
+pypdf
+python-multipart
 
 # SQLite is built into Python - no additional dependency needed
 # Database file will be created at data/jobs.db
