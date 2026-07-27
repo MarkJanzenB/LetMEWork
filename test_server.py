@@ -307,6 +307,26 @@ def test_soft_delete_endpoint(client):
     assert all(j["url"] != "https://example.com/del-me" for j in client.get("/api/jobs").json())
 
 
+def test_status_counts_match_live_jobs_not_orphans(client):
+    """Funnel counts must use the same universe as /api/jobs (exclude soft-deleted)."""
+    import db
+
+    live = _insert_job(db, url="https://example.com/live", score=80)
+    gone = _insert_job(db, url="https://example.com/gone-count", score=40)
+    db.set_job_status(live, "applied")
+    db.set_job_status(gone, "ignored")
+    db.soft_delete_job_by_url("https://example.com/gone-count")
+
+    res = client.get("/api/status-counts")
+    assert res.status_code == 200
+    counts = res.json()
+    assert counts["applied"] == 1
+    assert counts["ignored"] == 0  # soft-deleted must not inflate funnel
+    jobs = client.get("/api/jobs").json()
+    assert len(jobs) == 1
+    assert sum(counts.values()) == len(jobs)
+
+
 def test_scrape_seeds_soft_deleted_urls():
     import agent
     import db

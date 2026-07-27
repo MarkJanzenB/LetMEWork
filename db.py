@@ -400,12 +400,27 @@ def get_job_status(job_id: int) -> str:
 
 
 def get_status_counts() -> dict[str, int]:
-    """Return {status: count} for funnel summary."""
+    """Return {status: count} for the same jobs as /api/jobs (scored, not deleted)."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) as cnt FROM job_statuses GROUP BY status"
+            """
+            SELECT COALESCE(js.status, 'none') AS status, COUNT(*) AS cnt
+            FROM jobs j
+            JOIN scores s ON s.id = (
+                SELECT s2.id FROM scores s2
+                WHERE s2.job_id = j.id
+                ORDER BY s2.id DESC LIMIT 1
+            )
+            LEFT JOIN job_statuses js ON js.job_id = j.id
+            WHERE j.deleted_at IS NULL
+            GROUP BY COALESCE(js.status, 'none')
+            """
         ).fetchall()
-        return {r["status"]: r["cnt"] for r in rows}
+        out = {s: 0 for s in VALID_STATUSES}
+        for r in rows:
+            st = r["status"] if r["status"] in out else "none"
+            out[st] = out.get(st, 0) + r["cnt"]
+        return out
 
 
 def mark_viewed(job_url: str):

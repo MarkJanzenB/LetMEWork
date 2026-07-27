@@ -1691,15 +1691,15 @@
     <!-- Funnel Summary -->
     <div id="funnel-summary" class="pipeline" style="display:none;">
       <div class="pipeline-steps">
-        <div class="funnel-item">
+        <div class="funnel-item" title="Same as Not Started tab">
           <span id="funnel-none" class="funnel-count">0</span>
           <span class="funnel-label">Not Started</span>
         </div>
-        <div class="funnel-item">
+        <div class="funnel-item" title="Applied only — In progress tab also includes interviewed / rejected / hired">
           <span id="funnel-applied" class="funnel-count">0</span>
           <span class="funnel-label">Applied</span>
         </div>
-        <div class="funnel-item">
+        <div class="funnel-item" title="Ignored status only — Ignored tab also includes Closed">
           <span id="funnel-ignored" class="funnel-count">0</span>
           <span class="funnel-label">Ignored</span>
         </div>
@@ -1715,11 +1715,12 @@
           <span id="funnel-hired" class="funnel-count">0</span>
           <span class="funnel-label">Hired</span>
         </div>
-        <div class="funnel-item">
+        <div class="funnel-item" title="Closed jobs appear under the Ignored tab">
           <span id="funnel-closed" class="funnel-count">0</span>
           <span class="funnel-label">Closed</span>
         </div>
       </div>
+      <p id="funnel-hint" class="form-hint" style="margin:var(--sp-3) 0 0;font-size:var(--text-2xs);"></p>
     </div>
 
     <!-- Error Banner -->
@@ -1787,10 +1788,12 @@
       <button class="status-tab active" data-tab="none" aria-selected="true" onclick="setTab('none')">
         Not Started <span class="tab-count" id="tab-count-none">0</span>
       </button>
-      <button class="status-tab" data-tab="applied" aria-selected="false" onclick="setTab('applied')">
+      <button class="status-tab" data-tab="applied" aria-selected="false" onclick="setTab('applied')"
+        title="Applied + Interviewed + Rejected + Hired">
         In progress <span class="tab-count" id="tab-count-applied">0</span>
       </button>
-      <button class="status-tab" data-tab="ignored" aria-selected="false" onclick="setTab('ignored')">
+      <button class="status-tab" data-tab="ignored" aria-selected="false" onclick="setTab('ignored')"
+        title="Ignored + Closed / Expired">
         Ignored <span class="tab-count" id="tab-count-ignored">0</span>
       </button>
     </div>
@@ -2185,6 +2188,44 @@
       document.getElementById('tab-count-ignored').textContent = counts.ignored;
     }
 
+    function statusCountsFromJobs() {
+      const counts = {
+        none: 0, applied: 0, ignored: 0, interviewed: 0,
+        rejected: 0, hired: 0, closed: 0,
+      };
+      allJobs.forEach(j => {
+        const s = j.status || 'none';
+        if (s in counts) counts[s]++;
+        else counts.none++;
+      });
+      return counts;
+    }
+
+    function updateFunnelSummary() {
+      const counts = statusCountsFromJobs();
+      const total = allJobs.length;
+      const funnel = document.getElementById('funnel-summary');
+      if (!total) {
+        funnel.style.display = 'none';
+        return;
+      }
+      funnel.style.display = '';
+      document.getElementById('funnel-none').textContent = counts.none;
+      document.getElementById('funnel-applied').textContent = counts.applied;
+      document.getElementById('funnel-ignored').textContent = counts.ignored;
+      document.getElementById('funnel-interviewed').textContent = counts.interviewed;
+      document.getElementById('funnel-rejected').textContent = counts.rejected;
+      document.getElementById('funnel-hired').textContent = counts.hired;
+      document.getElementById('funnel-closed').textContent = counts.closed;
+      const inProg = counts.applied + counts.interviewed + counts.rejected + counts.hired;
+      const ignoredTab = counts.ignored + counts.closed;
+      const hint = document.getElementById('funnel-hint');
+      if (hint) {
+        hint.textContent =
+          `${total} listings · tabs: Not Started ${counts.none} · In progress ${inProg} · Ignored ${ignoredTab}`;
+      }
+    }
+
     /* ── utils ───────────────────────────────────────────── */
     const esc = s => String(s ?? '')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -2523,33 +2564,6 @@
       }
     }
 
-    async function updateFunnelSummary() {
-      try {
-        const res = await fetch('/api/status-counts');
-        const counts = await res.json();
-        // server only counts explicit status rows; untouched jobs are Not Started too
-        counts.none = allJobs.filter(j => (j.status || 'none') === 'none').length;
-        const funnel = document.getElementById('funnel-summary');
-        
-        // Show funnel if there are any statuses
-        const total = Object.values(counts).reduce((a, b) => a + b, 0);
-        if (total > 0) {
-          funnel.style.display = '';
-          document.getElementById('funnel-none').textContent = counts.none || 0;
-          document.getElementById('funnel-applied').textContent = counts.applied || 0;
-          document.getElementById('funnel-ignored').textContent = counts.ignored || 0;
-          document.getElementById('funnel-interviewed').textContent = counts.interviewed || 0;
-          document.getElementById('funnel-rejected').textContent = counts.rejected || 0;
-          document.getElementById('funnel-hired').textContent = counts.hired || 0;
-          document.getElementById('funnel-closed').textContent = counts.closed || 0;
-        } else {
-          funnel.style.display = 'none';
-        }
-      } catch (e) {
-        console.error('Failed to load funnel summary', e);
-      }
-    }
-
     const NEW_HIGH_SCORE = 80; // pin band: unviewed + score ≥ this
 
     function applySort(list, sort) {
@@ -2632,7 +2646,8 @@
       const ageCutoff = ageDays === 'all' ? null
         : Date.now() - Number(ageDays) * 86400000;
 
-      let jobs = allJobs.filter(j => tabOf(j) === currentTab);
+      const inTab = allJobs.filter(j => tabOf(j) === currentTab);
+      let jobs = inTab;
       if (verdict !== 'all') jobs = jobs.filter(j => j.verdict === verdict);
       else if (hideSkips) jobs = jobs.filter(j => j.verdict !== 'skip');
       if (search) jobs = jobs.filter(j =>
@@ -2658,21 +2673,36 @@
 
       const ordered = [...pinned, ...rest];
       visibleJobUrls = ordered.map(j => j.url).filter(Boolean);
-      document.getElementById('job-count').textContent =
-        `${ordered.length} job${ordered.length !== 1 ? 's' : ''}`;
+      const countEl = document.getElementById('job-count');
+      if (ordered.length === inTab.length) {
+        countEl.textContent = `${ordered.length} job${ordered.length !== 1 ? 's' : ''}`;
+      } else {
+        countEl.textContent =
+          `${ordered.length} of ${inTab.length} job${inTab.length !== 1 ? 's' : ''}`;
+      }
 
       const scrollY = window.scrollY;
       const list = document.getElementById('jobs-list');
 
       if (!ordered.length) {
+        const hiddenByFilters = inTab.length > 0;
+        const skipHint = hideSkips && verdict === 'all'
+          ? ' Try unchecking Hide skips.'
+          : '';
         list.innerHTML =
           `<div class="job-empty">
             <span class="job-empty-glyph" aria-hidden="true">◎</span>
             <span class="job-empty-title">No jobs to show</span>
-            <span class="job-empty-hint">Run the agent or adjust filters</span>
-            <button type="button" class="btn btn-primary" onclick="runAgent()" style="margin-top:0.75rem;">
+            <span class="job-empty-hint">${
+              hiddenByFilters
+                ? `${inTab.length} in this tab are hidden by filters.${skipHint}`
+                : 'Run the agent or adjust filters'
+            }</span>
+            ${hiddenByFilters
+              ? `<button type="button" class="btn btn-secondary--inactive" onclick="clearListFilters()" style="margin-top:0.75rem;">Clear filters</button>`
+              : `<button type="button" class="btn btn-primary" onclick="runAgent()" style="margin-top:0.75rem;">
               Fetch new job listings for your resume
-            </button>
+            </button>`}
           </div>`;
         updateSelectionUI();
         window.scrollTo({ top: scrollY, behavior: 'instant' });
@@ -2697,6 +2727,21 @@
       list.innerHTML = html;
       updateSelectionUI();
       window.scrollTo({ top: scrollY, behavior: 'instant' });
+    }
+
+    function clearListFilters() {
+      document.getElementById('filter-verdict').value = 'all';
+      document.getElementById('filter-age').value = 'all';
+      document.getElementById('search-input').value = '';
+      document.getElementById('hide-skips').checked = false;
+      localStorage.setItem('hideSkips', '0');
+      tierIdx = 0;
+      const btn = document.getElementById('tier-toggle');
+      if (btn) {
+        btn.textContent = 'Score: All';
+        btn.className = 'btn btn-secondary--inactive';
+      }
+      renderJobs();
     }
 
     async function changeStatus(url, newStatus, isUndo = false) {
