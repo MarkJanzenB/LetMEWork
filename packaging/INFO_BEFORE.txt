@@ -1,6 +1,12 @@
-Welcome to Let Me Work (pre-release beta)
+Welcome to Let Me Work (public beta)
 
-This installer puts Let Me Work on your PC, then installs missing
+Maintainer: Mark Janzen Bandola
+Repo: https://github.com/MarkJanzenB/LetMEWork
+
+Based on Kurt Chan's AI Job Hunt Agent (core scrape-and-score workflow).
+This edition adds OpenCode, SQLite, onboarding, React UI, and this installer.
+
+This Setup puts Let Me Work on your PC, then installs missing
 dependencies from official sources (network required):
 
   • Node.js LTS — via winget / Chocolatey / Scoop / nodejs.org MSI (if needed)
@@ -11,17 +17,18 @@ Python libraries are already inside LetMeWork.exe.
 
 What you still provide
   1. Firecrawl API key (required) — https://www.firecrawl.dev/app/api-keys
-  2. Your resume (paste markdown or upload a Word→PDF)
+  2. Your resume (paste markdown or upload PDF)
   3. Optional: OpenRouter key — https://openrouter.ai/keys
 
-After setup: Settings → Job boards — choose Indeed, JobStreet,
-OnlineJobs.ph (JobsPH), LinkedIn, etc. OnlineJobs.ph is off by default.
+After setup: complete onboarding (keys → resume → at least one job board).
+
+What to expect (beta)
+  • Useful local tool — not a cloud SaaS or auto-apply bot
+  • AI match quality varies by model and resume
+  • SmartScreen may warn (unsigned beta): More info → Run anyway
+  • OpenCode install may need Retry or a new terminal for PATH
 
 Privacy
-  • API keys stay under your Windows AppData folder on THIS PC.
-  • Keys are never uploaded to the publisher and are not stored in the job database.
-  • Your resume PDF (if uploaded) stays on this PC; the AI uses extracted text.
-
-Windows SmartScreen may warn on unsigned pre-releases from new publishers.
-That is expected. Choose "More info" → "Run anyway" if you trust this build.
-Node / OpenCode installers may also show their own prompts or UAC.
+  • API keys stay under your Windows AppData folder on THIS PC
+  • Keys are never uploaded to the publisher and are not stored in the job database
+  • Resume stays on this PC; AI providers receive extracted text when you run the agent

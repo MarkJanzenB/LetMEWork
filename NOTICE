@@ -1,0 +1,25 @@
+# NOTICE — Let Me Work
+
+This product is a derivative of:
+
+  AI Job Hunt Agent
+  https://github.com/Kurt-Chan/ai-job-scraper
+  Copyright (c) Kurt De Austria
+  Licensed under the MIT License
+
+Core workflow (host-owned FastAPI pipeline, Firecrawl acquisition,
+prompt/CLI scoring loop, local dashboard concept) originates there.
+
+Let Me Work (this repository) adds and maintains:
+
+  - OpenCode AI runtime (replacing Claude CLI)
+  - Model health probing, batch scoring, SSE / run controls
+  - SQLite persistence and job lifecycle features
+  - First-run onboarding, AppData BYOK storage
+  - React dashboard and Windows installer / update feed
+
+  Copyright (c) 2026 Mark Janzen Bandola
+  https://github.com/MarkJanzenB/LetMEWork
+
+The MIT license text is in LICENSE. Both copyright notices apply to
+substantial portions of this Software as required by MIT.

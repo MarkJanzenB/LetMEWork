@@ -1,0 +1,43 @@
+---
+description: >-
+  Release / ship / publish Let Me Work versions — bump, changelog, format,
+  test, tag, GitHub Release with installer + latest.json. Triggers on release,
+  ship, cut a version, publish update, bump version.
+alwaysApply: false
+---
+
+# Let Me Work — release agent workflow
+
+**Repo:** `MarkJanzenB/LetMEWork` (https://github.com/MarkJanzenB/LetMEWork)
+
+When the user asks to **release**, **ship**, **cut a version**, **publish an update**, or **bump for release**, follow [`RELEASE.md`](RELEASE.md). Do not invent a parallel process.
+
+## Hard rules
+
+1. **Ask for the target version** if they did not give one (e.g. `0.1.0-beta.2`).
+2. **Do not push** or **`gh release create`** unless the user explicitly asked to push/publish.
+3. **Do not force-push** tags or rewrite published releases.
+4. Keep **Kurt Chan** credited in release notes (core workflow); credit **Mark Janzen Bandola** for Let Me Work edition.
+5. Stay ponytail: no new release tooling beyond `scripts/bump_version.py` + existing packaging.
+
+## Checklist (in order)
+
+1. **Read** `CHANGELOG.md`, `user_data.py` (`APP_VERSION`), `RELEASE.md`, `packaging/README.md`.
+2. **Changelog** — fold `[Unreleased]` into `## [VERSION] — YYYY-MM-DD`; refresh compare links at bottom; leave empty Unreleased stubs.
+3. **Bump** — `python scripts/bump_version.py VERSION` (updates `user_data.py`, `pyproject.toml`, `frontend/package.json`, `LetMeWork.iss`).
+4. **Format / verify**
+   - `ruff check .` (fix only if already used / user wants)
+   - `pytest`
+   - If frontend changed: `cd frontend && npm run build` and stage `frontend/dist` if tracked
+5. **Commit** (only if user asked to commit): `Release vVERSION` with body pointing at CHANGELOG.
+6. **Push + tag** (only if user asked): annotated tag `vVERSION`, push branch + tag.
+7. **Installer** (only if user asked to build/publish): follow `packaging/README.md` → Setup EXE → SHA-256 → `latest.json`.
+8. **GitHub Release** (only if user asked):
+   - Title: `Let Me Work VERSION`
+   - Notes: CHANGELOG section + SmartScreen note + provenance one-liner
+   - Assets: `LetMeWork-Setup-VERSION.exe`, `latest.json`
+   - Prefer non-prerelease if app update feed uses `/releases/latest/`
+
+## After release
+
+Remind user to clear `[Unreleased]` leftovers and that installed apps only see the new build after they update (or reinstall).

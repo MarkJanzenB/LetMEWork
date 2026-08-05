@@ -1,6 +1,8 @@
 # Desktop packaging — Let Me Work
 
-Unsigned pre-release Windows build: local app + OpenCode via **official CLI** + first-run onboarding.
+Unsigned public-beta Windows build for [MarkJanzenB/LetMEWork](https://github.com/MarkJanzenB/LetMEWork): local app + OpenCode via **official CLI** + first-run onboarding.
+
+Core scrape-and-score workflow: Kurt Chan’s AI Job Hunt Agent. This packaging layer is part of Mark Janzen Bandola’s Let Me Work edition (see repo `NOTICE`).
 
 ## Build order
 
@@ -28,7 +30,7 @@ Attach both assets to each release:
 - `LetMeWork-Setup-<ver>.exe`
 - `latest.json` — `{ "version", "installer_url", "sha256" }`
 
-App checks `…/releases/latest/download/latest.json`. Settings: opt-in auto-update (default off) or banner + Update now.
+App checks `https://github.com/MarkJanzenB/LetMEWork/releases/latest/download/latest.json`. Settings: opt-in auto-update (default off) or banner + Update now. Use a non-prerelease GitHub Release so `/latest/` resolves.
 
 ## Dependencies the installer pulls in
 

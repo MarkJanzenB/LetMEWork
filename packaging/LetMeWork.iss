@@ -9,7 +9,7 @@
 #define MyAppName "Let Me Work"
 #define MyAppVersion "0.1.0-beta.1"
 #define MyAppPublisher "Mark Janzen Bandola"
-#define MyAppURL "https://github.com/MarkJanzenB/ai-job-scraper"
+#define MyAppURL "https://github.com/MarkJanzenB/LetMEWork"
 #define MyAppExeName "LetMeWork.exe"
 
 [Setup]

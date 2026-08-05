@@ -92,7 +92,7 @@ async def deps_status():
 def _update_feed_url() -> str:
     return os.environ.get(
         "LETMEWORK_UPDATE_URL",
-        "https://github.com/MarkJanzenB/ai-job-scraper/releases/latest/download/latest.json",
+        "https://github.com/MarkJanzenB/LetMEWork/releases/latest/download/latest.json",
     )
 
 

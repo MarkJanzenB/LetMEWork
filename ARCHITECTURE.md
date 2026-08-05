@@ -4,6 +4,12 @@ A portable description of the idea behind this repo: what it is, how a run execu
 
 Use this when transplanting the **workflow**, not the job-hunting domain.
 
+## Provenance
+
+The **host-owned pipeline** pattern (local orchestrator + disposable AI CLI + Firecrawl acquisition + prompt contracts) comes from [Kurt Chan’s AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper).
+
+**Let Me Work** ([MarkJanzenB/LetMEWork](https://github.com/MarkJanzenB/LetMEWork)) is Mark Janzen Bandola’s edition of that workflow: OpenCode instead of Claude CLI, SQLite, React UI, Windows packaging, onboarding, and reliability layers. See [`NOTICE`](NOTICE) and the README credits table.
+
 ---
 
 ## 1. The Idea

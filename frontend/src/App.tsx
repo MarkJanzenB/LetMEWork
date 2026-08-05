@@ -125,7 +125,12 @@ export default function App() {
       <header className="header">
         <div>
           <h1>Let Me Work <span className="badge">{status.version}</span></h1>
-          <p>AI Job finder that matches your resume</p>
+          <p>
+            AI job finder ·{' '}
+            <a href="https://github.com/MarkJanzenB/LetMEWork" target="_blank" rel="noreferrer">
+              MarkJanzenB/LetMEWork
+            </a>
+          </p>
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={() => setSettingsOpen(true)}>Settings</button>

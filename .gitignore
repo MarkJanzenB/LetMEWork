@@ -1,26 +1,61 @@
+# Secrets / personal
 .env
-node_modules/
-output/
-__pycache__/
-.pytest_cache/
-.claude/
-.opencode/
-.cursor/
+.env.*
+!.env.example
 resume.md
 *.pdf
-*.png
+
+# Runtime data
 data/
+output/
 nul
 opencode.json
-migrate_json_to_db.py
-/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 /build/
 *.spec.bak
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/*.tsbuildinfo
+
+# Packaging / local tools
+/dist/
 packaging/dist/
+tools/
 qa/
+migrate_json_to_db.py
+
+# Root npm accidents (frontend/ has its own package.json)
 /package.json
 /package-lock.json
-tools/
-frontend/node_modules/
 
-frontend/*.tsbuildinfo
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*~
+
+# Agent / editor local state — commit shared project rules only
+.claude/
+.opencode/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# Optional: ignore large binary docs assets unless added intentionally
+# *.png
