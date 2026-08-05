@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from datetime import datetime
 from itertools import zip_longest
 from pathlib import Path
@@ -22,6 +23,21 @@ import model_prober
 _healthy_models: list[str] = []  # Loaded from cache or probed at startup
 _model_index = 0  # Rotation cursor
 _model_failures: dict[str, int] = {}  # Consecutive failures per model
+_pipeline_cancel = threading.Event()
+_current_opencode_proc: subprocess.Popen | None = None
+
+
+def request_pipeline_cancel() -> None:
+    """Signal the active pipeline (and OpenCode child) to stop."""
+    _pipeline_cancel.set()
+    proc = _current_opencode_proc
+    if proc is not None and proc.poll() is None:
+        _kill_process_tree(proc)
+
+
+def _check_cancelled() -> None:
+    if _pipeline_cancel.is_set():
+        raise RuntimeError("Run cancelled by user")
 
 
 def _init_models() -> None:
@@ -60,22 +76,30 @@ def _reset_model(model: str) -> None:
 
 def _get_healthy_model() -> str:
     """Find next model with failures < MAX_RETRIES.
-    If all models are exhausted, re-probe and continue.
+
+    Re-probes providers at most once; then raises instead of rotating forever.
     """
-    for _ in range(len(_healthy_models)):
+    global _healthy_models
+    for _ in range(max(len(_healthy_models), 1)):
         candidate = _next_model()
         if _model_failures.get(candidate, 0) < config.MAX_RETRIES:
             return candidate
-    # All models exhausted — re-probe and reset
-    print("  All models exhausted — re-probing providers...")
-    _healthy_models.clear()
-    _model_failures.clear()
-    _init_models()
-    return _next_model()
+    if not getattr(_get_healthy_model, "_reprobed", False):
+        _get_healthy_model._reprobed = True  # type: ignore[attr-defined]
+        print("  All models exhausted — re-probing providers once...")
+        _model_failures.clear()
+        _healthy_models = model_prober.get_healthy_models(force_probe=True)
+        if not _healthy_models:
+            raise RuntimeError(
+                "No healthy models found after re-probe. Check opencode / providers."
+            )
+        print(f"  Model pool: {len(_healthy_models)} healthy models loaded")
+        return _next_model()
+    raise RuntimeError("All OpenCode models exhausted after re-probe")
 
 
 # Where to search. config.json (same shape) overrides these defaults, so the
-# job boards and subreddits can be tailored without editing code or prompts.
+# job boards can be tailored without editing code or prompts.
 
 # What Firecrawl should pull out of each scraped page.
 EXTRACT_PROMPT = (
@@ -118,21 +142,9 @@ def load_config() -> dict:
 
 
 def _sources_context(cfg: dict) -> str:
-    """Render the configured job boards and subreddit groups as prompt context
-    for prompts/build_queries.md."""
+    """Render the configured job boards as prompt context for build_queries.md."""
     boards = "\n".join(f"- {b}" for b in cfg.get("job_boards", []))
-    groups = []
-    for g in cfg.get("reddit_groups", []):
-        line = f"- {g['name']}: " + ", ".join(f"r/{s}" for s in g.get("subreddits", []))
-        if g.get("extra_terms"):
-            line += f' (also include the term "{g["extra_terms"]}" in the query)'
-        groups.append(line)
-    return (
-        "\nJob boards to cover (one query each):\n"
-        + boards
-        + "\n\nReddit subreddit groups (one grouped query each):\n"
-        + "\n".join(groups)
-    )
+    return "\nJob boards to cover (one query each):\n" + boards
 
 
 # ── step 0: build search config from resume ───────────────
@@ -146,7 +158,8 @@ def build_search_config(profile: dict | None = None) -> dict:
         + f"\n\n=== RAW RESUME ===\n{resume}\n=== END RESUME ==="
     )
     result = run_opencode_json("prompts/build_queries.md", context=context)
-    Path("output/search_config.json").write_text(json.dumps(result, indent=2))
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (config.OUTPUT_DIR / "search_config.json").write_text(json.dumps(result, indent=2))
     print(f"  Roles: {result.get('target_roles')}")
     print(f"  Skills: {result.get('key_skills')}")
     print(f"  Queries ({len(result.get('search_queries', []))}): ready")
@@ -154,9 +167,21 @@ def build_search_config(profile: dict | None = None) -> dict:
 
 
 # ── step 0a: extract structured resume profile ────────────
+def _resume_profile_path() -> Path:
+    return config.OUTPUT_DIR / "resume_profile.json"
+
+
+def invalidate_resume_profile_cache() -> None:
+    """Drop cached profile so the next run re-extracts after resume edits."""
+    path = _resume_profile_path()
+    if path.exists():
+        path.unlink()
+        print(f"  Cleared resume profile cache ({path})")
+
+
 def extract_resume_profile() -> dict:
     """Extract a structured profile from the resume once, cache to disk."""
-    profile_path = Path("output/resume_profile.json")
+    profile_path = _resume_profile_path()
     if profile_path.exists():
         print("  Using cached resume profile")
         return json.loads(profile_path.read_text(encoding="utf-8"))
@@ -165,30 +190,21 @@ def extract_resume_profile() -> dict:
     context = f"=== RESUME ===\n{resume}\n=== END RESUME ==="
     print("  Extracting resume profile...")
     profile = run_opencode_json("prompts/extract_profile.md", context=context)
-    profile_path.write_text(json.dumps(profile, indent=2))
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
     print(
         f"  Profile: {profile.get('name', '?')} — {profile.get('experience_years', '?')} years experience"
     )
     return profile
 
 
-# ── url canonicalization ──────────────────────────────────
+# ── url canonicalization (db.url_dedup_key is source of truth) ──
 def _canonical_host(host: str) -> str:
-    """Collapse www. and two-letter regional prefixes (in.indeed.com,
-    uk.linkedin.com, ph.jobstreet.com) so one site isn't treated as many."""
-    host = host.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    labels = host.split(".")
-    if len(labels) >= 3 and len(labels[0]) == 2:
-        host = ".".join(labels[1:])
-    return host
+    return db._canonical_host(host)
 
 
 def _dedup_key(url: str) -> str:
-    """Key for URL deduplication: canonical host + path + query."""
-    p = urlparse(url)
-    return f"{_canonical_host(p.netloc)}{p.path}?{p.query}"
+    return db.url_dedup_key(url)
 
 
 # ── step 1a: discover candidate pages via search ─────────
@@ -212,7 +228,7 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
             response = app.search(query, limit=10)
             for r in response.web or []:
                 url = r.url
-                if not url or _dedup_key(url) in seen_urls:
+                if not url or not db.is_safe_http_url(url) or _dedup_key(url) in seen_urls:
                     continue
                 seen_urls.add(_dedup_key(url))
                 hits.append(
@@ -239,7 +255,7 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
     a result that was already an individual posting.
     """
     listing_url = page["url"]
-    source = _canonical_host(urlparse(listing_url).netloc)
+    source = db._canonical_host(urlparse(listing_url).netloc)
 
     def _snippet_fallback() -> list[dict]:
         return [
@@ -277,6 +293,8 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
         # Resolve the posting URL relative to the page; fall back to the page URL.
         posting_url = (p.get("url") or "").strip()
         posting_url = urljoin(listing_url, posting_url) if posting_url else listing_url
+        if not db.is_safe_http_url(posting_url):
+            continue
         # Skip if the extracted URL is the same as the source (search results page)
         if _dedup_key(posting_url) == _dedup_key(listing_url):
             continue
@@ -295,8 +313,64 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
 
 
 # ── step 1: search → scrape → individual postings ─────────
+def _is_firecrawl_quota_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(
+        s in msg
+        for s in (
+            "payment required",
+            "insufficient",
+            "credit",
+            "quota",
+            "rate limit",
+            "rate_limit",
+            "too many requests",
+            "402",
+            "429",
+            "exhausted",
+            "upgrade your plan",
+        )
+    )
+
+
+class _FirecrawlFailover:
+    """Primary key first; on quota/payment errors, retry with backup once."""
+
+    def __init__(self, keys: list[str]):
+        if not keys:
+            raise RuntimeError(
+                "No Firecrawl API key set — add FIRECRAWL_API_KEY (and optional "
+                "FIRECRAWL_API_KEY_BACKUP) in Settings or .env."
+            )
+        self._keys = keys
+        self._i = 0
+        self._app = FirecrawlApp(api_key=keys[0])
+
+    def _call(self, method: str, *args, **kwargs):
+        try:
+            return getattr(self._app, method)(*args, **kwargs)
+        except Exception as e:
+            if self._i + 1 < len(self._keys) and _is_firecrawl_quota_error(e):
+                self._i += 1
+                print(
+                    f"  Firecrawl primary key exhausted — switching to backup "
+                    f"({self._i + 1}/{len(self._keys)})"
+                )
+                self._app = FirecrawlApp(api_key=self._keys[self._i])
+                return getattr(self._app, method)(*args, **kwargs)
+            raise
+
+    def search(self, *args, **kwargs):
+        return self._call("search", *args, **kwargs)
+
+    def scrape(self, *args, **kwargs):
+        return self._call("scrape", *args, **kwargs)
+
+
 def scrape_jobs(search_queries: list[str]) -> list[dict]:
-    app = FirecrawlApp(api_key=os.environ["FIRECRAWL_API_KEY"])
+    import user_data
+
+    app = _FirecrawlFailover(user_data.firecrawl_api_keys())
 
     pages = discover_pages(app, search_queries)
     print(
@@ -373,10 +447,10 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
     """Run a prompt file via opencode with live output streaming and stall detection.
 
     Streams stdout line-by-line so we can see what the model is doing.
-    Rotates through healthy models indefinitely. Each model gets up to
-    MAX_RETRIES consecutive failures before being skipped. A success
-    resets that model's failure count to 0. If all models are exhausted,
-    the pool is re-probed automatically.
+    Rotates through healthy models with a hard attempt ceiling
+    (config.MAX_OPENCODE_ATTEMPTS). Each model gets up to MAX_RETRIES
+    consecutive failures before being skipped. A success resets that
+    model's failure count. Pool may re-probe once, then fails.
 
     Two timeout mechanisms:
       - STALL_TIMEOUT: hard cap on total runtime per attempt
@@ -394,25 +468,27 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
     opencode_exe = user_data.find_opencode()
     if not opencode_exe:
         raise RuntimeError(
-            "opencode CLI not found — reinstall Let Me Work (includes OpenCode) "
-            "or install OpenCode and ensure it is on PATH."
+            "opencode CLI not found — install from https://opencode.ai "
+            "or reinstall Let Me Work after installing OpenCode on PATH."
         )
 
     if not model:
         _init_models()
+    _get_healthy_model._reprobed = False  # type: ignore[attr-defined]
 
     selected_model = model or _next_model()
     last_error = None
     total_attempts = 0
 
-    while True:
+    while total_attempts < config.MAX_OPENCODE_ATTEMPTS:
         total_attempts += 1
         # Skip unhealthy models if not manually specified
         if not model and _model_failures.get(selected_model, 0) >= config.MAX_RETRIES:
             print(f"  Skipping {selected_model} (failed {_model_failures[selected_model]}x)")
             selected_model = _get_healthy_model()
 
-        print(f"  [Attempt {total_attempts}] Using model: {selected_model}")
+        print(f"  [Attempt {total_attempts}/{config.MAX_OPENCODE_ATTEMPTS}] Using model: {selected_model}")
+        global _current_opencode_proc
         proc = subprocess.Popen(
             [
                 opencode_exe,
@@ -427,6 +503,7 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
             stderr=subprocess.PIPE,
             cwd=".",
         )
+        _current_opencode_proc = proc
 
         stdout_chunks: list[str] = []
         start_time = time.monotonic()
@@ -452,6 +529,7 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
 
         try:
             while True:
+                _check_cancelled()
                 elapsed = time.monotonic() - start_time
                 silence = time.monotonic() - last_output_time
 
@@ -558,6 +636,17 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
                 print(f"    Partial output: {chunks_so_far[-200:]}")
             selected_model = _get_healthy_model()
             last_error = f"Timed out after {int(elapsed)}s"
+        except RuntimeError:
+            _kill_process_tree(proc)
+            raise
+        finally:
+            if _current_opencode_proc is proc:
+                _current_opencode_proc = None
+
+    raise RuntimeError(
+        f"OpenCode failed after {config.MAX_OPENCODE_ATTEMPTS} attempts"
+        + (f": {last_error}" if last_error else "")
+    )
 
 
 def _parse_json_output(raw: str):
@@ -596,10 +685,10 @@ def _validate_job_scores(data: list[dict]) -> list[dict]:
         if not isinstance(job, dict):
             continue
 
-        # Required fields
+        # Required fields — http(s) only (blocks javascript: / data: XSS sinks)
         url = job.get("url", "")
         title = job.get("title", "")
-        if not url or not title:
+        if not url or not title or not db.is_safe_http_url(url):
             continue
 
         # Validate and clamp score
@@ -665,7 +754,7 @@ ANALYZE_BATCH_SIZE = 30  # jobs per model call — keeps context small enough fo
 
 def analyze_jobs(profile: dict | None = None) -> list[dict]:
     """Run opencode analysis on raw_jobs.json in batches, then merge."""
-    raw_jobs = json.loads(Path("output/raw_jobs.json").read_text(encoding="utf-8"))
+    raw_jobs = json.loads((config.OUTPUT_DIR / "raw_jobs.json").read_text(encoding="utf-8"))
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
     profile_json = json.dumps(profile, indent=2) if profile else ""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -695,7 +784,8 @@ def analyze_jobs(profile: dict | None = None) -> list[dict]:
             print(f"    → Batch {idx} failed: {e} — skipping")
 
     all_scored = _validate_job_scores(all_scored)
-    Path("output/jobs.json").write_text(json.dumps(all_scored, indent=2))
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (config.OUTPUT_DIR / "jobs.json").write_text(json.dumps(all_scored, indent=2))
     return all_scored
 
 
@@ -718,7 +808,7 @@ def generate_cover_letter(job: dict, profile: dict | None = None) -> str:
 
 def load_cached_profile() -> dict | None:
     """Return the cached resume profile, or None if it hasn't been extracted yet."""
-    profile_path = Path("output/resume_profile.json")
+    profile_path = _resume_profile_path()
     if profile_path.exists():
         return json.loads(profile_path.read_text(encoding="utf-8"))
     return None
@@ -728,7 +818,7 @@ def generate_cover_letters(
     jobs: list[dict], profile: dict | None = None, run_id: int | None = None
 ):
     """Generate cover letters for many jobs; save each to DB (by URL) and disk."""
-    out_dir = Path("output/cover_letters")
+    out_dir = config.OUTPUT_DIR / "cover_letters"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for job in jobs:
@@ -765,7 +855,8 @@ def run_pipeline(on_progress=None) -> dict:
             on_progress(step, label, status)
         db.update_run_step(run_id, step, label)
 
-    Path("output").mkdir(exist_ok=True)
+    _pipeline_cancel.clear()
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     db.init_db()
 
     if not config.RESUME_FILE.exists():
@@ -774,10 +865,12 @@ def run_pipeline(on_progress=None) -> dict:
     run_id = db.start_run()
 
     try:
+        _check_cancelled()
         emit(0, "Extracting resume profile", "running")
         profile = extract_resume_profile()
         emit(0, "Extracting resume profile", "done")
 
+        _check_cancelled()
         emit(1, "Building search config", "running")
         search_config = build_search_config(profile)
         search_queries = search_config.get("search_queries", [])
@@ -785,14 +878,16 @@ def run_pipeline(on_progress=None) -> dict:
             raise RuntimeError("No search queries generated — check prompts/build_queries.md")
         emit(1, "Building search config", "done")
 
+        _check_cancelled()
         emit(2, "Scraping jobs", "running")
         jobs = scrape_jobs(search_queries)
         if not jobs:
             raise RuntimeError("No jobs found — check your FIRECRAWL_API_KEY or search queries.")
-        Path("output/raw_jobs.json").write_text(json.dumps(jobs, indent=2))
+        (config.OUTPUT_DIR / "raw_jobs.json").write_text(json.dumps(jobs, indent=2))
         db.insert_raw_jobs(jobs, run_id)
         emit(2, "Scraping jobs", "done")
 
+        _check_cancelled()
         emit(3, "Analyzing & scoring", "running")
         all_jobs = analyze_jobs(profile)
         db.save_pipeline_output(all_jobs, run_id)
@@ -812,6 +907,10 @@ def run_pipeline(on_progress=None) -> dict:
     except Exception as e:
         db.finish_run(run_id, error=str(e))
         raise
+    finally:
+        global _current_opencode_proc
+        _pipeline_cancel.clear()
+        _current_opencode_proc = None
 
 
 # ── main pipeline ─────────────────────────────────────────

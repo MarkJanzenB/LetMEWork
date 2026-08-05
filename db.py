@@ -8,11 +8,45 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import config
 
 DB_PATH = config.DB_PATH
 VALID_STATUSES = config.VALID_STATUSES
+
+
+# ── URL identity (shared with scrape dedupe) ──────────────
+def _canonical_host(host: str) -> str:
+    """Collapse www. and two-letter regional prefixes (in.indeed.com → indeed.com)."""
+    host = host.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    labels = host.split(".")
+    if len(labels) >= 3 and len(labels[0]) == 2:
+        host = ".".join(labels[1:])
+    return host
+
+
+def url_dedup_key(url: str) -> str:
+    """Canonical host + path + query — same identity soft-delete and scrape use."""
+    p = urlparse(url)
+    return f"{_canonical_host(p.netloc)}{p.path}?{p.query}"
+
+
+def is_safe_http_url(url: str) -> bool:
+    """Allow only http(s) URLs without credentials in the netloc."""
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        p = urlparse(url.strip())
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    if not p.netloc or "@" in p.netloc:
+        return False
+    return True
 
 
 # ── connection ────────────────────────────────────────────
@@ -106,7 +140,7 @@ CREATE TABLE IF NOT EXISTS raw_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_scores_job    ON scores(job_id);
 CREATE INDEX IF NOT EXISTS idx_scores_run    ON scores(run_id);
-CREATE INDEX IF NOT EXISTS idx_cl_job        ON cover_letters(job_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cl_job ON cover_letters(job_id);
 CREATE INDEX IF NOT EXISTS idx_raw_run       ON raw_jobs(run_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_url      ON jobs(url);
 """
@@ -130,6 +164,15 @@ def init_db():
         # Index after ALTER — existing DBs lack deleted_at until migration runs
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_deleted ON jobs(deleted_at)"
+        )
+        # One cover letter per job — drop dupes then enforce UNIQUE
+        conn.execute(
+            "DELETE FROM cover_letters WHERE id NOT IN "
+            "(SELECT MAX(id) FROM cover_letters GROUP BY job_id)"
+        )
+        conn.execute("DROP INDEX IF EXISTS idx_cl_job")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_cl_job ON cover_letters(job_id)"
         )
 
 
@@ -205,7 +248,7 @@ def get_last_completed_run() -> dict | None:
 
 
 # ── jobs ──────────────────────────────────────────────────
-def upsert_job(job: dict, run_id: int | None = None) -> int:
+def upsert_job(job: dict, run_id: int | None = None, conn=None) -> int:
     """Insert or update a job by URL. Returns the job ID.
 
     Soft-deleted rows are left alone (still returns their id) so callers can
@@ -214,48 +257,54 @@ def upsert_job(job: dict, run_id: int | None = None) -> int:
     url = job.get("url", "")
     if not url:
         return 0
-    with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id, deleted_at FROM jobs WHERE url=?", (url,)
-        ).fetchone()
-        if existing:
-            jid = existing["id"]
-            if existing["deleted_at"]:
-                return jid  # keep soft-deleted; do not refresh fields
-            conn.execute(
-                "UPDATE jobs SET title=COALESCE(NULLIF(?,''),title), "
-                "company=COALESCE(NULLIF(?,''),company), "
-                "location=COALESCE(NULLIF(?,''),location), "
-                "description=COALESCE(NULLIF(?,''),description), "
-                "source=COALESCE(NULLIF(?,''),source), "
-                "posted_date=COALESCE(NULLIF(?,''),posted_date) WHERE id=?",
-                (
-                    job.get("title", ""),
-                    job.get("company", ""),
-                    job.get("location", ""),
-                    job.get("description", ""),
-                    job.get("source", ""),
-                    job.get("posted_date", ""),
-                    jid,
-                ),
-            )
-        else:
-            cur = conn.execute(
-                "INSERT INTO jobs (url, title, company, location, description, "
-                "source, posted_date, first_seen_run) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    url,
-                    job.get("title", ""),
-                    job.get("company", ""),
-                    job.get("location", ""),
-                    job.get("description", ""),
-                    job.get("source", ""),
-                    job.get("posted_date", ""),
-                    run_id,
-                ),
-            )
-            jid = cur.lastrowid
+    if conn is not None:
+        return _upsert_job(conn, job, run_id)
+    with get_db() as c:
+        return _upsert_job(c, job, run_id)
+
+
+def _upsert_job(conn, job: dict, run_id: int | None = None) -> int:
+    url = job.get("url", "")
+    existing = conn.execute(
+        "SELECT id, deleted_at FROM jobs WHERE url=?", (url,)
+    ).fetchone()
+    if existing:
+        jid = existing["id"]
+        if existing["deleted_at"]:
+            return jid  # keep soft-deleted; do not refresh fields
+        conn.execute(
+            "UPDATE jobs SET title=COALESCE(NULLIF(?,''),title), "
+            "company=COALESCE(NULLIF(?,''),company), "
+            "location=COALESCE(NULLIF(?,''),location), "
+            "description=COALESCE(NULLIF(?,''),description), "
+            "source=COALESCE(NULLIF(?,''),source), "
+            "posted_date=COALESCE(NULLIF(?,''),posted_date) WHERE id=?",
+            (
+                job.get("title", ""),
+                job.get("company", ""),
+                job.get("location", ""),
+                job.get("description", ""),
+                job.get("source", ""),
+                job.get("posted_date", ""),
+                jid,
+            ),
+        )
         return jid
+    cur = conn.execute(
+        "INSERT INTO jobs (url, title, company, location, description, "
+        "source, posted_date, first_seen_run) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            url,
+            job.get("title", ""),
+            job.get("company", ""),
+            job.get("location", ""),
+            job.get("description", ""),
+            job.get("source", ""),
+            job.get("posted_date", ""),
+            run_id,
+        ),
+    )
+    return cur.lastrowid
 
 
 def soft_delete_job_by_url(url: str) -> bool:
@@ -279,13 +328,15 @@ def restore_job_by_url(url: str) -> bool:
 
 
 def is_url_soft_deleted(url: str) -> bool:
+    """True if any soft-deleted job shares this URL's canonical identity."""
     if not url:
         return False
+    key = url_dedup_key(url)
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM jobs WHERE url=? AND deleted_at IS NOT NULL", (url,)
-        ).fetchone()
-        return row is not None
+        rows = conn.execute(
+            "SELECT url FROM jobs WHERE deleted_at IS NOT NULL"
+        ).fetchall()
+        return any(url_dedup_key(r["url"]) == key for r in rows)
 
 
 def get_soft_deleted_urls() -> list[str]:
@@ -297,6 +348,17 @@ def get_soft_deleted_urls() -> list[str]:
         return [r["url"] for r in rows]
 
 
+def abandon_orphan_runs(reason: str = "server restarted") -> int:
+    """Mark leftover status=running rows failed (lock is process-local)."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE runs SET finished_at=?, status='failed', error_message=? "
+            "WHERE status='running'",
+            (_now(), reason),
+        )
+        return cur.rowcount
+
+
 def get_job_id_by_url(url: str) -> int | None:
     with get_db() as conn:
         row = conn.execute("SELECT id FROM jobs WHERE url=?", (url,)).fetchone()
@@ -304,27 +366,34 @@ def get_job_id_by_url(url: str) -> int | None:
 
 
 # ── scores ────────────────────────────────────────────────
-def upsert_score(job_id: int, score_data: dict, run_id: int | None = None):
+def upsert_score(job_id: int, score_data: dict, run_id: int | None = None, conn=None):
     """Insert a new score record (never updates — keeps history)."""
     if not job_id:
         return
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO scores (job_id, run_id, score, verdict, work_arrangement, "
-            "match_reasons, red_flags, suggested_angle, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (
-                job_id,
-                run_id,
-                score_data.get("score", 0),
-                score_data.get("verdict", "skip"),
-                score_data.get("work_arrangement", ""),
-                json.dumps(score_data.get("match_reasons", [])),
-                json.dumps(score_data.get("red_flags", [])),
-                score_data.get("suggested_angle", ""),
-                _now(),
-            ),
-        )
+    if conn is not None:
+        _upsert_score(conn, job_id, score_data, run_id)
+        return
+    with get_db() as c:
+        _upsert_score(c, job_id, score_data, run_id)
+
+
+def _upsert_score(conn, job_id: int, score_data: dict, run_id: int | None = None):
+    conn.execute(
+        "INSERT INTO scores (job_id, run_id, score, verdict, work_arrangement, "
+        "match_reasons, red_flags, suggested_angle, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            job_id,
+            run_id,
+            score_data.get("score", 0),
+            score_data.get("verdict", "skip"),
+            score_data.get("work_arrangement", ""),
+            json.dumps(score_data.get("match_reasons", [])),
+            json.dumps(score_data.get("red_flags", [])),
+            score_data.get("suggested_angle", ""),
+            _now(),
+        ),
+    )
 
 
 def get_latest_scores() -> list[dict]:
@@ -477,24 +546,28 @@ def save_pipeline_output(scored_jobs: list[dict], run_id: int | None = None):
     """Save a list of scored job dicts (from AI analysis) into the DB.
 
     Soft-deleted URLs are skipped so a re-scrape never resurrects them.
+    One transaction for the whole batch.
     """
-    for job_data in scored_jobs:
-        url = job_data.get("url", "")
-        if not url or is_url_soft_deleted(url):
-            continue
-        job_id = upsert_job(
-            {
-                "url": url,
-                "title": job_data.get("title", ""),
-                "company": job_data.get("company", ""),
-                "location": job_data.get("location", ""),
-                "description": job_data.get("description", ""),
-                "source": job_data.get("source", ""),
-                "posted_date": job_data.get("posted_date", ""),
-            },
-            run_id,
-        )
-        upsert_score(job_id, job_data, run_id)
+    deleted = {url_dedup_key(u) for u in get_soft_deleted_urls()}
+    with get_db() as conn:
+        for job_data in scored_jobs:
+            url = job_data.get("url", "")
+            if not url or url_dedup_key(url) in deleted:
+                continue
+            job_id = upsert_job(
+                {
+                    "url": url,
+                    "title": job_data.get("title", ""),
+                    "company": job_data.get("company", ""),
+                    "location": job_data.get("location", ""),
+                    "description": job_data.get("description", ""),
+                    "source": job_data.get("source", ""),
+                    "posted_date": job_data.get("posted_date", ""),
+                },
+                run_id,
+                conn=conn,
+            )
+            upsert_score(job_id, job_data, run_id, conn=conn)
 
 
 # ── API response builder ─────────────────────────────────

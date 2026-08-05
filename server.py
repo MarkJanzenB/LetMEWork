@@ -28,6 +28,8 @@ logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
 async def lifespan(app: FastAPI):
     config.bootstrap()
     db.init_db()
+    # run_lock resets on process start; DB "running" rows would lie otherwise
+    db.abandon_orphan_runs()
     yield
 
 
@@ -51,7 +53,6 @@ async def index():
 
 @app.get("/api/jobs")
 async def get_jobs():
-    db.init_db()
     jobs = db.get_jobs_for_api()
     return JSONResponse(jobs)
 
@@ -63,7 +64,6 @@ class StatusUpdate(BaseModel):
 
 @app.post("/api/status")
 async def update_status(body: StatusUpdate):
-    db.init_db()
     job_id = db.get_job_id_by_url(body.url)
     if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -76,7 +76,6 @@ async def update_status(body: StatusUpdate):
 
 @app.post("/api/viewed")
 async def mark_viewed(body: StatusUpdate):
-    db.init_db()
     db.mark_viewed(body.url)
     return {"ok": True}
 
@@ -88,7 +87,6 @@ class UrlBody(BaseModel):
 @app.post("/api/delete")
 async def soft_delete(body: UrlBody):
     """Soft-delete a job. Future scrapes skip this URL (dedupe)."""
-    db.init_db()
     if not db.get_job_id_by_url(body.url):
         raise HTTPException(status_code=404, detail="Job not found")
     db.soft_delete_job_by_url(body.url)
@@ -98,7 +96,6 @@ async def soft_delete(body: UrlBody):
 @app.post("/api/restore")
 async def restore_job(body: UrlBody):
     """Undo a soft-delete."""
-    db.init_db()
     if not db.restore_job_by_url(body.url):
         raise HTTPException(status_code=404, detail="Deleted job not found")
     return {"ok": True}
@@ -106,7 +103,8 @@ async def restore_job(body: UrlBody):
 
 @app.get("/api/run-status")
 async def get_run_status():
-    db.init_db()
+    # Truth = in-process lock OR a live DB run (post-restart orphans cleaned at boot)
+    locked = run_lock.locked()
     run = db.get_active_run()
     last = db.get_last_completed_run()
     last_payload = (
@@ -118,13 +116,14 @@ async def get_run_status():
         if last
         else None
     )
-    if run:
+    if locked or run:
         return JSONResponse(
             {
                 "active": True,
-                "step": run.get("step", 0),
-                "label": run.get("label", ""),
-                "status": run.get("status", "running"),
+                "locked": locked,
+                "step": (run or {}).get("step", 0),
+                "label": (run or {}).get("label", "") or ("Running…" if locked else ""),
+                "status": (run or {}).get("status", "running"),
                 "last_run": last_payload,
             }
         )
@@ -135,7 +134,6 @@ async def get_run_status():
 async def health():
     """Liveness + DB + last completed run — used when the UI suspects connection loss."""
     try:
-        db.init_db()
         with db.get_db() as conn:
             conn.execute("SELECT 1").fetchone()
         last = db.get_last_completed_run()
@@ -153,8 +151,8 @@ async def health():
                 else None
             ),
         }
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"unhealthy: {exc}")
+    except Exception:
+        return {"ok": False, "db": "error", "version": config.APP_VERSION}
 
 
 # ── setup / onboarding (keys stay on this PC only) ───────
@@ -162,6 +160,7 @@ async def health():
 
 class KeysBody(BaseModel):
     firecrawl_key: str | None = None
+    firecrawl_backup_key: str | None = None
     openrouter_key: str | None = None
 
 
@@ -171,7 +170,6 @@ class ResumeBody(BaseModel):
 
 class SettingsBody(BaseModel):
     onboarding_complete: bool | None = None
-    prefer_free_models: bool | None = None
 
 
 @app.get("/api/setup/status")
@@ -184,6 +182,7 @@ async def setup_keys(body: KeysBody):
     """Save API keys to AppData .env only — never to the job database."""
     user_data.write_env_keys(
         firecrawl_key=body.firecrawl_key,
+        firecrawl_backup_key=body.firecrawl_backup_key,
         openrouter_key=body.openrouter_key,
     )
     return user_data.setup_status()
@@ -209,6 +208,9 @@ async def save_resume(body: ResumeBody):
         raise HTTPException(status_code=400, detail="Resume cannot be empty")
     path = user_data.save_resume_text(body.content)
     config.bootstrap()
+    from agent import invalidate_resume_profile_cache
+
+    invalidate_resume_profile_cache()
     return {"ok": True, "path": str(path)}
 
 
@@ -226,6 +228,9 @@ async def upload_resume_pdf(file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read PDF: {exc}")
     config.bootstrap()
+    from agent import invalidate_resume_profile_cache
+
+    invalidate_resume_profile_cache()
     return {"ok": True, **result}
 
 
@@ -263,8 +268,6 @@ async def setup_complete(body: SettingsBody = SettingsBody()):
             detail="OpenCode not found — reinstall the app or install OpenCode",
         )
     updates = {"onboarding_complete": True}
-    if body.prefer_free_models is not None:
-        updates["prefer_free_models"] = body.prefer_free_models
     user_data.save_settings(updates)
     return user_data.setup_status()
 
@@ -301,14 +304,15 @@ async def bulk_apply(
     min_score: int | None = Query(default=None),
     max_score: int | None = Query(default=None),
 ):
-    """Mark filtered jobs as applied and return their URLs."""
-    db.init_db()
+    """Mark Not Started jobs in the score band as applied; never overwrite other statuses."""
     jobs = db.get_jobs_for_api()
     urls = []
     for job in jobs:
         url = job.get("url", "")
         score = job.get("score", 0)
         if not url:
+            continue
+        if (job.get("status") or "none") != "none":
             continue
         if min_score is not None and score < min_score:
             continue
@@ -323,7 +327,6 @@ async def bulk_apply(
 
 @app.get("/api/cover-letter")
 async def get_cover_letter(url: str = Query(...)):
-    db.init_db()
     job_id = db.get_job_id_by_url(url)
     if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -345,7 +348,6 @@ def generate_cover_letter_endpoint(body: CoverLetterBody):
     Sync def on purpose: FastAPI runs it in a threadpool, so the minutes-long
     model call doesn't block the event loop.
     """
-    db.init_db()
     job_id = db.get_job_id_by_url(body.url)
     if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -365,7 +367,6 @@ def generate_cover_letter_endpoint(body: CoverLetterBody):
 
 @app.get("/api/status-counts")
 async def get_status_counts():
-    db.init_db()
     counts = db.get_status_counts()
     # Ensure all statuses are present
     for status in ["none", "applied", "ignored", "interviewed", "rejected", "hired", "closed"]:
@@ -376,7 +377,6 @@ async def get_status_counts():
 
 @app.get("/api/runs")
 async def get_runs():
-    db.init_db()
     runs = db.get_runs()
     return runs
 
@@ -387,7 +387,6 @@ async def export_csv(
     max_score: int | None = Query(default=None),
     status: str | None = Query(default=None),
 ):
-    db.init_db()
     jobs = db.get_jobs_for_api()
 
     # Apply filters
@@ -454,7 +453,6 @@ async def export_csv(
 
 @app.put("/api/cover-letter")
 async def update_cover_letter(body: CoverLetterBody):
-    db.init_db()
     job_id = db.get_job_id_by_url(body.url)
     if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -489,6 +487,13 @@ async def run_agent():
     class _LogTee:
         """Mirror stdout/stderr to the SSE queue (and still print to the console)."""
 
+        _REDACT = __import__("re").compile(
+            r"(api[_-]?key\s*[:=]\s*\S+|sk-[a-zA-Z0-9]{8,}|"
+            r"Bearer\s+\S+|FIRECRAWL_API_KEY(_BACKUP)?|OPENROUTER_API_KEY|"
+            r"=== (RESUME|STRUCTURED PROFILE) ===)",
+            __import__("re").I,
+        )
+
         def __init__(self, real):
             self._real = real
             self._buf = ""
@@ -502,8 +507,13 @@ async def run_agent():
             while "\n" in self._buf:
                 line, self._buf = self._buf.split("\n", 1)
                 line = line.rstrip()
-                if line:
-                    q.put({"step": "log", "line": line})
+                if not line:
+                    continue
+                if self._REDACT.search(line):
+                    line = "[redacted sensitive log line]"
+                elif len(line) > 400:
+                    line = line[:200] + "…"
+                q.put({"step": "log", "line": line})
 
         def flush(self):
             self._real.flush()
@@ -541,6 +551,17 @@ async def run_agent():
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/run/cancel")
+async def cancel_run():
+    """Stop the in-flight pipeline if any (human in control)."""
+    if not run_lock.locked():
+        return JSONResponse({"ok": True, "cancelled": False, "message": "No active run"})
+    from agent import request_pipeline_cancel
+
+    request_pipeline_cancel()
+    return JSONResponse({"ok": True, "cancelled": True})
 
 
 if __name__ == "__main__":

@@ -249,6 +249,37 @@ def test_health_ok(client):
     assert body["db"] == "ok"
 
 
+def test_is_safe_http_url():
+    import db
+
+    assert db.is_safe_http_url("https://example.com/job")
+    assert db.is_safe_http_url("http://example.com/job")
+    assert not db.is_safe_http_url("javascript:alert(1)")
+    assert not db.is_safe_http_url("data:text/html,hi")
+    assert not db.is_safe_http_url("https://user:pass@evil.com/")
+    assert not db.is_safe_http_url("")
+
+
+def test_validate_job_scores_rejects_bad_schemes():
+    import agent
+
+    out = agent._validate_job_scores(
+        [
+            {"url": "javascript:alert(1)", "title": "Bad", "score": 90, "verdict": "apply"},
+            {
+                "url": "https://ok.example/job",
+                "title": "Good",
+                "score": 80,
+                "verdict": "apply",
+                "match_reasons": [],
+                "red_flags": [],
+            },
+        ]
+    )
+    assert len(out) == 1
+    assert out[0]["url"].startswith("https://")
+
+
 def test_run_status_includes_last_run(client):
     import db
 
@@ -492,3 +523,86 @@ def test_upload_resume_pdf_endpoint(client, tmp_path, monkeypatch):
     assert "EndpointPDFText" in body["content"]
     assert (tmp_path / "resume.pdf").exists()
     assert (tmp_path / "resume.md").exists()
+
+
+def test_bulk_apply_only_marks_none_status(client):
+    import db
+
+    none_id = _insert_job(db, url="https://example.com/fresh", score=85)
+    ignored_id = _insert_job(db, url="https://example.com/ignored", score=90)
+    hired_id = _insert_job(db, url="https://example.com/hired", score=95)
+    db.set_job_status(ignored_id, "ignored")
+    db.set_job_status(hired_id, "hired")
+
+    res = client.post("/api/bulk-apply?min_score=80")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["count"] == 1
+    assert body["urls"] == ["https://example.com/fresh"]
+    assert db.get_job_status(none_id) == "applied"
+    assert db.get_job_status(ignored_id) == "ignored"
+    assert db.get_job_status(hired_id) == "hired"
+
+
+def test_soft_delete_blocks_canonical_url_variants(client):
+    import db
+
+    job_id = _insert_job(db, url="https://www.indeed.com/viewjob?jk=abc", score=80)
+    assert db.soft_delete_job_by_url("https://www.indeed.com/viewjob?jk=abc")
+
+    db.save_pipeline_output(
+        [
+            {
+                "url": "https://in.indeed.com/viewjob?jk=abc",
+                "title": "Resurrect?",
+                "company": "X",
+                "score": 99,
+                "verdict": "apply",
+                "match_reasons": [],
+                "red_flags": [],
+                "suggested_angle": "",
+            }
+        ]
+    )
+    jobs = client.get("/api/jobs").json()
+    assert all("jk=abc" not in j["url"] for j in jobs)
+    assert db.is_url_soft_deleted("https://indeed.com/viewjob?jk=abc")
+    assert job_id  # original row still exists as soft-deleted
+
+
+def test_resume_save_clears_profile_cache(client, tmp_path, monkeypatch):
+    import agent
+    import config
+
+    monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path / "output")
+    (tmp_path / "output").mkdir(exist_ok=True)
+    cache = tmp_path / "output" / "resume_profile.json"
+    cache.write_text('{"name":"Stale"}', encoding="utf-8")
+
+    res = client.post("/api/setup/resume", json={"content": "# New Resume\nUpdated"})
+    assert res.status_code == 200
+    assert not cache.exists()
+
+
+def test_abandon_orphan_runs_on_lifespan(tmp_path, monkeypatch):
+    import importlib
+    import db
+    import server
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ui").mkdir()
+    (tmp_path / "ui" / "index.html").write_text("<html></html>")
+    (tmp_path / "data").mkdir()
+    db.DB_PATH = tmp_path / "data" / "jobs.db"
+    db.init_db()
+    orphan = db.start_run()
+    assert db.get_active_run() is not None
+
+    n = db.abandon_orphan_runs("test restart")
+    assert n == 1
+    assert db.get_active_run() is None
+    # finished as failed
+    with db.get_db() as conn:
+        row = conn.execute("SELECT status, error_message FROM runs WHERE id=?", (orphan,)).fetchone()
+        assert row["status"] == "failed"
+        assert "restart" in row["error_message"]

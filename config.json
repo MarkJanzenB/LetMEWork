@@ -5,14 +5,5 @@
     "wellfound.com",
     "glassdoor.com",
     "jobstreet.com"
-  ],
-  "reddit_groups": [
-    { "name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"] },
-    { "name": "Freelance/gig", "subreddits": ["freelance", "Upwork"] },
-    {
-      "name": "Community",
-      "subreddits": ["forhire", "digitalnomad", "remotework"],
-      "extra_terms": "hiring"
-    }
   ]
 }

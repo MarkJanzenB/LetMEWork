@@ -109,7 +109,6 @@ def save_resume_pdf(data: bytes, *, original_name: str = "") -> dict:
 def default_settings() -> dict:
     return {
         "onboarding_complete": False,
-        "prefer_free_models": True,
         "version_seen": APP_VERSION,
     }
 
@@ -160,33 +159,46 @@ def apply_env_to_process() -> None:
 def write_env_keys(
     *,
     firecrawl_key: str | None = None,
+    firecrawl_backup_key: str | None = None,
     openrouter_key: str | None = None,
 ) -> None:
     """Update keys in AppData .env. Pass None to leave unchanged; "" to clear."""
     current = read_env_keys()
-    if firecrawl_key is not None:
-        if firecrawl_key:
-            current["FIRECRAWL_API_KEY"] = firecrawl_key
+
+    def _set(name: str, value: str | None) -> None:
+        if value is None:
+            return
+        if value:
+            current[name] = value
         else:
-            current.pop("FIRECRAWL_API_KEY", None)
-            os.environ.pop("FIRECRAWL_API_KEY", None)
-    if openrouter_key is not None:
-        if openrouter_key:
-            current["OPENROUTER_API_KEY"] = openrouter_key
-        else:
-            current.pop("OPENROUTER_API_KEY", None)
-            os.environ.pop("OPENROUTER_API_KEY", None)
+            current.pop(name, None)
+            os.environ.pop(name, None)
+
+    _set("FIRECRAWL_API_KEY", firecrawl_key)
+    _set("FIRECRAWL_API_KEY_BACKUP", firecrawl_backup_key)
+    _set("OPENROUTER_API_KEY", openrouter_key)
 
     lines = [
         "# Let Me Work — keys stored ONLY on this PC (never uploaded).",
         f"# Location: {env_path()}",
         "",
     ]
-    for k in ("FIRECRAWL_API_KEY", "OPENROUTER_API_KEY"):
+    for k in ("FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY_BACKUP", "OPENROUTER_API_KEY"):
         if k in current and current[k]:
             lines.append(f"{k}={current[k]}")
     env_path().write_text("\n".join(lines) + "\n", encoding="utf-8")
     apply_env_to_process()
+
+
+def firecrawl_api_keys() -> list[str]:
+    """Primary then backup Firecrawl keys (deduped, non-empty)."""
+    apply_env_to_process()
+    out: list[str] = []
+    for name in ("FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY_BACKUP"):
+        v = (os.environ.get(name) or "").strip()
+        if v and v not in out:
+            out.append(v)
+    return out
 
 
 def mask_key(value: str | None) -> str:
@@ -219,6 +231,9 @@ def setup_status() -> dict:
     keys = read_env_keys()
     # Also reflect process env (dev .env)
     fc = keys.get("FIRECRAWL_API_KEY") or os.environ.get("FIRECRAWL_API_KEY", "")
+    fc_backup = keys.get("FIRECRAWL_API_KEY_BACKUP") or os.environ.get(
+        "FIRECRAWL_API_KEY_BACKUP", ""
+    )
     ork = keys.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY", "")
     oc = find_opencode()
     resume = resume_path()
@@ -226,7 +241,7 @@ def setup_status() -> dict:
     has_resume = resume.exists() or repo_resume.exists()
     pdf = resume_pdf_path()
     settings_pdf_name = settings.get("resume_pdf_name") or (pdf.name if pdf.exists() else "")
-    ready = bool(fc) and has_resume and bool(oc)
+    ready = bool(fc or fc_backup) and has_resume and bool(oc)
     onboarding_complete = bool(settings.get("onboarding_complete"))
     # Packaged: always wizard until marked done. Dev: skip if already configured.
     needs_onboarding = (not onboarding_complete) and (is_frozen() or not ready)
@@ -235,13 +250,14 @@ def setup_status() -> dict:
         "app_name": APP_NAME,
         "onboarding_complete": onboarding_complete,
         "needs_onboarding": needs_onboarding,
-        "prefer_free_models": bool(settings.get("prefer_free_models", True)),
         "user_data_dir": str(user_data_dir()),
         "keys_path": str(env_path()),
         "keys_local_only": True,
-        "has_firecrawl": bool(fc),
+        "has_firecrawl": bool(fc or fc_backup),
+        "has_firecrawl_backup": bool(fc_backup),
         "has_openrouter": bool(ork),
         "firecrawl_masked": mask_key(fc),
+        "firecrawl_backup_masked": mask_key(fc_backup),
         "openrouter_masked": mask_key(ork),
         "opencode_path": oc,
         "opencode_found": bool(oc),

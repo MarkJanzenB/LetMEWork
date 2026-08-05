@@ -24,6 +24,92 @@ def test_write_env_keys_local_only(tmp_path, monkeypatch):
     assert "test-secret" not in status["firecrawl_masked"]
 
 
+def test_firecrawl_backup_key(tmp_path, monkeypatch):
+    import user_data
+
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(user_data, "env_path", lambda: tmp_path / ".env")
+    monkeypatch.setattr(user_data, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(user_data, "resume_path", lambda: tmp_path / "resume.md")
+
+    user_data.write_env_keys(
+        firecrawl_key="fc-primary-aaaa",
+        firecrawl_backup_key="fc-backup-bbbb",
+    )
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "FIRECRAWL_API_KEY=fc-primary-aaaa" in text
+    assert "FIRECRAWL_API_KEY_BACKUP=fc-backup-bbbb" in text
+    keys = user_data.firecrawl_api_keys()
+    assert keys == ["fc-primary-aaaa", "fc-backup-bbbb"]
+    status = user_data.setup_status()
+    assert status["has_firecrawl_backup"] is True
+    assert status["firecrawl_backup_masked"].startswith("fc-b")
+    assert "backup-bbbb" not in status["firecrawl_backup_masked"]
+
+
+def test_firecrawl_failover_swaps_on_quota(monkeypatch):
+    import agent
+
+    class FakeApp:
+        def __init__(self, api_key):
+            self.key = api_key
+
+        def search(self, query, limit=10):
+            if self.key == "primary":
+                raise RuntimeError("402 Payment Required — insufficient credits")
+            return type("R", (), {"web": []})()
+
+    monkeypatch.setattr(agent, "FirecrawlApp", FakeApp)
+    app = agent._FirecrawlFailover(["primary", "backup"])
+    app.search("test")
+    assert app._i == 1
+    assert app._app.key == "backup"
+
+
+def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
+    import io
+    import json
+
+    import model_prober
+
+    tags = {"models": [{"name": "gemma4:e4b"}, {"name": "dead:model"}]}
+
+    class CM:
+        def __init__(self, data: bytes):
+            self._buf = io.BytesIO(data)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self._buf.read()
+
+    def urlopen_smart(req, timeout=None):
+        url = req if isinstance(req, str) else req.full_url
+        if str(url).endswith("/api/tags"):
+            return CM(json.dumps(tags).encode())
+        data = getattr(req, "data", b"") or b""
+        if b"dead:model" in data:
+            return CM(json.dumps({"response": ""}).encode())
+        return CM(json.dumps({"response": "hello"}).encode())
+
+    oc_path = tmp_path / "opencode.json"
+    oc_path.write_text('{"$schema": "x", "agent": {"job-agent": {}}}', encoding="utf-8")
+    monkeypatch.setattr(model_prober, "_opencode_json_path", lambda: oc_path)
+    monkeypatch.setattr(model_prober.urllib.request, "urlopen", urlopen_smart)
+
+    healthy = model_prober.probe_ollama_models()
+    assert healthy == ["gemma4:e4b"]
+    model_prober.sync_ollama_models_to_opencode(healthy)
+    cfg = json.loads(oc_path.read_text(encoding="utf-8"))
+    assert "gemma4:e4b" in cfg["provider"]["ollama"]["models"]
+    assert cfg["provider"]["ollama"]["options"]["baseURL"].endswith("/v1")
+    assert cfg["agent"]["job-agent"] == {}
+
+
 def test_save_resume(tmp_path, monkeypatch):
     import user_data
 

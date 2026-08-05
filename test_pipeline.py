@@ -272,21 +272,23 @@ def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
     cfg = agent.load_config()
     assert "linkedin.com/jobs" in cfg["job_boards"]
     assert "onlinejobs.ph" not in cfg["job_boards"]
-    assert any(g["name"] == "Community" for g in cfg["reddit_groups"])
+    assert "reddit_groups" not in cfg
 
 
 def test_load_config_overrides_from_file(tmp_path, monkeypatch):
     import agent
     import config
 
-    (tmp_path / "config.json").write_text(json.dumps({"job_boards": ["indeed.com"]}))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"job_boards": ["indeed.com"], "reddit_groups": [{"name": "x", "subreddits": ["y"]}]})
+    )
     monkeypatch.setattr(config, "writable_config_path", lambda: tmp_path / "config.json")
     cfg = agent.load_config()
     assert cfg["job_boards"] == ["indeed.com"]
-    assert cfg["reddit_groups"] == config.DEFAULT_CONFIG["reddit_groups"]
+    assert "reddit_groups" not in cfg
 
 
-def test_sources_context_lists_boards_and_groups():
+def test_sources_context_lists_boards_only():
     import agent
 
     ctx = agent._sources_context(
@@ -298,15 +300,13 @@ def test_sources_context_lists_boards_and_groups():
                     "subreddits": ["webdev", "cscareers"],
                     "extra_terms": "hiring",
                 },
-                {"name": "Gigs", "subreddits": ["freelance"]},
             ],
         }
     )
     assert "- remoteok.com" in ctx
     assert "- weworkremotely.com" in ctx
-    assert "Dev: r/webdev, r/cscareers" in ctx
-    assert '"hiring"' in ctx
-    assert "Gigs: r/freelance" in ctx
+    assert "reddit" not in ctx.lower()
+    assert "webdev" not in ctx
 
 
 def test_run_opencode_raises_when_cli_missing(tmp_path, monkeypatch):
@@ -347,12 +347,16 @@ def test_run_opencode_uses_resolved_executable(tmp_path, monkeypatch):
 
 def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):
     import agent
+    import config
 
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "output").mkdir()
+    out = tmp_path / "output"
+    out.mkdir()
+    monkeypatch.setattr(config, "OUTPUT_DIR", out)
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    (tmp_path / "resume.md").write_text("I build things.")
 
     raw_jobs = [{"title": "Dev", "url": "https://example.com", "company": "Test"}]
-    (tmp_path / "output" / "raw_jobs.json").write_text(json.dumps(raw_jobs))
+    (out / "raw_jobs.json").write_text(json.dumps(raw_jobs))
 
     analyzed = [{"title": "Dev", "url": "https://example.com", "score": 85, "verdict": "apply"}]
     with patch.object(agent, "run_opencode_json", return_value=analyzed):
@@ -361,4 +365,50 @@ def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):
     assert len(result) == 1
     assert result[0]["title"] == "Dev"
     assert result[0]["url"] == "https://example.com"
-    assert json.loads((tmp_path / "output" / "jobs.json").read_text()) == result
+    assert json.loads((out / "jobs.json").read_text()) == result
+
+
+def test_run_opencode_respects_attempt_budget(tmp_path, monkeypatch):
+    import agent
+    import config
+    from io import BytesIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "prompt.md").write_text("hello")
+    monkeypatch.setattr(config, "MAX_OPENCODE_ATTEMPTS", 3)
+    monkeypatch.setattr(config, "MAX_RETRIES", 99)
+
+    def _failing(*_a, **_k):
+        return SimpleNamespace(
+            returncode=1,
+            pid=1,
+            stdout=BytesIO(b""),
+            stderr=BytesIO(b"fail"),
+            poll=lambda: 1,
+        )
+
+    with (
+        patch.object(agent, "_init_models"),
+        patch.object(agent, "_healthy_models", ["m1", "m2"]),
+        patch.object(agent, "_model_failures", {}),
+        patch.object(agent, "_model_index", 0),
+        patch("user_data.find_opencode", return_value="/fake/opencode"),
+        patch.object(agent.subprocess, "Popen", side_effect=_failing),
+        patch.object(agent, "_kill_process_tree"),
+    ):
+        with pytest.raises(RuntimeError, match="after 3 attempts"):
+            agent.run_opencode("prompt.md")
+
+
+def test_invalidate_resume_profile_cache(tmp_path, monkeypatch):
+    import agent
+    import config
+
+    monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path)
+    cache = tmp_path / "resume_profile.json"
+    cache.write_text("{}", encoding="utf-8")
+    agent.invalidate_resume_profile_cache()
+    assert not cache.exists()
+    agent.invalidate_resume_profile_cache()  # idempotent

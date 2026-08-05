@@ -11,6 +11,19 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+
+    .skip-link {
+      position: absolute; left: -9999px; top: 0; z-index: 10000;
+      padding: var(--sp-2) var(--sp-4);
+      background: var(--mecha-neon); color: var(--mecha-black);
+      font-family: var(--font-mono); font-size: var(--text-xs);
+    }
+    .skip-link:focus { left: var(--sp-3); top: var(--sp-3); }
+
     :root {
       /* palette */
       --mecha-black: #0a0a0c;
@@ -238,8 +251,20 @@
     .btn-primary:hover:not(:disabled) {
       background: var(--mecha-neon-bright);
       border-color: var(--mecha-neon-bright);
-      transform: translateY(-1px);
       box-shadow: var(--shadow-cta);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+    }
+
+    .btn:active:not(:disabled),
+    .btn-card:active:not(:disabled),
+    .status-tab:active {
+      transform: scale(0.97);
+      transition-duration: 160ms;
     }
 
     .btn-secondary {
@@ -399,13 +424,16 @@
     }
     .progress-fill {
       height: 100%;
-      width: 0%;
+      width: 100%;
+      transform: scaleX(0);
+      transform-origin: left center;
       border-radius: inherit;
       background: linear-gradient(90deg, var(--led-propeller), var(--mecha-neon));
-      transition: width 480ms var(--ease-out);
+      transition: transform 280ms var(--ease-out);
       position: relative;
     }
     .progress-fill.indeterminate {
+      transform: none !important;
       width: 36% !important;
       animation: progress-slide 1.4s var(--ease-out) infinite;
     }
@@ -711,7 +739,12 @@
     .job-card:hover {
       border-color: var(--hairline-strong);
       box-shadow: var(--shadow-card-hover);
-      transform: translateY(-1px);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .job-card:hover {
+        transform: translateY(-1px);
+      }
     }
 
     .job-card--apply { border-left: 3px solid var(--mecha-neon); }
@@ -794,12 +827,6 @@
       background: rgba(196, 255, 88, 0.16);
       color: var(--mecha-neon);
       border-color: rgba(196, 255, 88, 0.4);
-      animation: pulse 2.4s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.65; }
     }
 
     .job-new {
@@ -1463,15 +1490,6 @@
     #jobs-list.is-refreshing { opacity: 0.55; }
 
     /* ── list transitions ──────────────────────────────── */
-    @keyframes card-in {
-      from { opacity: 0; transform: translateY(0.5rem); }
-    }
-
-    .job-card {
-      animation: card-in 360ms var(--ease-out) backwards;
-      animation-delay: calc(var(--i, 0) * 30ms);
-    }
-
     .job-card--leaving {
       opacity: 0;
       transform: translateX(1.5rem) scale(0.98);
@@ -1502,12 +1520,13 @@
 </head>
 
 <body>
+  <a class="skip-link" href="#jobs-list">Skip to jobs</a>
   <!-- Toast notifications -->
   <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
   <!-- First-run onboarding -->
   <div id="wizard-overlay" class="wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
-    <div class="wizard-panel">
+    <div class="wizard-panel" tabindex="-1">
       <h2 id="wizard-title" class="modal-title">Welcome to Let Me Work</h2>
       <div class="wizard-steps" id="wizard-steps">
         <span data-step="0" class="on">1 · Privacy</span>
@@ -1518,13 +1537,14 @@
 
       <div class="wizard-step active" data-step="0">
         <p style="color:var(--mecha-silver);font-size:var(--text-sm);line-height:1.6;">
-          This app runs on <strong style="color:var(--mecha-white)">your PC</strong>.
-          OpenCode (bundled by the installer) scores jobs locally.
+          Let Me Work runs on <strong style="color:var(--mecha-white)">your PC</strong>.
+          Keys stay in a local file — never in the job database, never uploaded to us.
         </p>
         <div class="privacy-callout">
-          Your API keys are stored only in a file on this computer
-          (<code id="wiz-keys-path" style="font-size:var(--text-2xs)">…</code>).
-          They are <strong>never</strong> uploaded to us or written into the job database.
+          Job pages are fetched via <strong>Firecrawl</strong>. Resume text is sent to the
+          <strong>AI providers you configure</strong> (often cloud models via OpenCode / OpenRouter).
+          Nothing is uploaded to a Let Me Work cloud service.
+          Keys path: <code id="wiz-keys-path" style="font-size:var(--text-2xs)">…</code>
         </div>
       </div>
 
@@ -1563,11 +1583,12 @@
 
       <div class="wizard-step" data-step="3">
         <p style="color:var(--mecha-silver);font-size:var(--text-sm);line-height:1.6;">
-          You’re set. Use <strong style="color:var(--mecha-white)">Run Agent</strong> to fetch and score jobs.
-          Change keys or resume anytime in Settings.
+          You’re set. Click <strong style="color:var(--mecha-white)">Run Agent</strong> to scrape and score jobs
+          (often several minutes). Cover letters stay on-demand — generate them per job when you want.
+          Default boards are enabled; change them anytime in Settings.
         </p>
         <div class="privacy-callout" style="margin-top:var(--sp-4)">
-          Pre-release beta — expect rough edges. Keys stay on this PC.
+          Pre-release beta — expect rough edges. Your keys stay on this PC.
         </div>
       </div>
 
@@ -1580,10 +1601,10 @@
 
   <!-- Settings -->
   <div id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <div class="settings-panel">
+    <div class="settings-panel" tabindex="-1">
       <div class="modal-header">
         <h2 id="settings-title" class="modal-title">Settings</h2>
-        <button type="button" class="modal-close" onclick="closeSettings()" aria-label="Close">×</button>
+        <button type="button" class="modal-close" onclick="closeSettings()" aria-label="Close settings">×</button>
       </div>
       <div class="privacy-callout">
         Keys stay on this PC only — never uploaded, never stored in the job database.
@@ -1592,6 +1613,9 @@
       <label class="form-label" for="set-firecrawl">Firecrawl API key</label>
       <input id="set-firecrawl" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
       <p class="form-hint"><a href="https://www.firecrawl.dev/app/api-keys" target="_blank" rel="noopener">How to get a Firecrawl key</a></p>
+      <label class="form-label" for="set-firecrawl-backup">Backup Firecrawl key (optional)</label>
+      <input id="set-firecrawl-backup" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
+      <p class="form-hint">Used automatically if the primary key hits quota / payment limits (e.g. student plan as backup).</p>
       <label class="form-label" for="set-openrouter">OpenRouter API key (optional)</label>
       <input id="set-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
       <label class="form-label" for="set-resume">Resume</label>
@@ -1604,8 +1628,10 @@
       </div>
       <textarea id="set-resume" class="form-textarea"></textarea>
       <p class="form-hint">Edit the extracted text anytime. Saving updates resume.md (used by the AI). Original PDF stays in your AppData folder.</p>
-      <label class="form-label">Job boards to scrape</label>
-      <div id="set-sources" class="source-checks"></div>
+      <fieldset style="border:0;padding:0;margin:0;">
+        <legend class="form-label">Job boards to scrape</legend>
+        <div id="set-sources" class="source-checks"></div>
+      </fieldset>
       <p class="form-hint">Unchecked boards are skipped on the next Run Agent. OnlineJobs.ph is off by default (account verification often blocks applying).</p>
       <p id="settings-oc" class="form-hint" style="margin-top:var(--sp-4)"></p>
       <div class="wizard-nav">
@@ -1618,19 +1644,19 @@
   <div class="container">
 
     <!-- Header -->
-    <div class="header">
+    <header class="header">
       <div>
         <h1 class="header-title">Let Me Work <span class="beta-badge" id="beta-badge">beta</span></h1>
         <p class="header-tagline">AI Job finder that matches your resume</p>
         <p id="last-run" class="header-meta"></p>
         <p class="header-meta">Based on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">Kurt Chan's AI Job Hunt Agent</a> · OpenCode Edition by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a></p>
       </div>
-      <div class="header-actions">
+      <div class="header-actions" role="toolbar" aria-label="Actions">
         <div class="header-actions-group">
-          <button type="button" onclick="openSettings()" class="btn btn-secondary--inactive">
+          <button type="button" id="settings-btn" onclick="openSettings()" class="btn btn-secondary--inactive">
             Settings
           </button>
-          <button id="tier-toggle" onclick="cycleTier()" class="btn btn-secondary--inactive">
+          <button id="tier-toggle" onclick="cycleTier()" class="btn btn-secondary--inactive" aria-label="Cycle score filter">
             Score: All
           </button>
           <button id="bulk-apply-btn" onclick="bulkApply()" class="btn btn-secondary--inactive">
@@ -1647,7 +1673,7 @@
           Run Agent
         </button>
       </div>
-    </div>
+    </header>
 
     <!-- Progress Pipeline -->
     <div id="progress-section" class="pipeline" style="display:none;" aria-live="polite">
@@ -1681,7 +1707,9 @@
         </div>
       </div>
       <p id="progress-live" class="progress-live">Starting…</p>
-      <button type="button" id="toggle-logs" class="progress-log-toggle" onclick="toggleRunLogs()">Show logs</button>
+      <button type="button" id="toggle-logs" class="progress-log-toggle" onclick="toggleRunLogs()"
+              aria-expanded="false" aria-controls="run-logs">Show logs</button>
+      <button type="button" id="cancel-run-btn" class="btn btn-secondary--inactive btn-sm" onclick="cancelRun()" style="margin-left:auto;">Cancel run</button>
       <pre id="run-logs" class="run-logs" aria-label="Pipeline logs"></pre>
     </div>
 
@@ -1734,21 +1762,25 @@
 
     <!-- Filter Bar -->
     <div class="filter-bar">
+      <label class="visually-hidden" for="search-input">Search jobs</label>
       <input type="text" id="search-input" placeholder="Search jobs… ( / )"
-             oninput="onSearchInput()" class="filter-input">
-      <select id="filter-verdict" onchange="renderJobs()" class="filter-select">
+             oninput="onSearchInput()" class="filter-input" aria-label="Search jobs">
+      <label class="visually-hidden" for="filter-verdict">Verdict</label>
+      <select id="filter-verdict" onchange="renderJobs()" class="filter-select" aria-label="Filter by verdict">
         <option value="all">All verdicts</option>
         <option value="apply">Apply</option>
         <option value="review">Review</option>
         <option value="skip">Skip</option>
       </select>
-      <select id="filter-age" onchange="renderJobs()" class="filter-select">
+      <label class="visually-hidden" for="filter-age">Age</label>
+      <select id="filter-age" onchange="renderJobs()" class="filter-select" aria-label="Filter by age">
         <option value="all">Any age</option>
         <option value="7">Last 7 days</option>
         <option value="30">Last 30 days</option>
         <option value="90">Last 90 days</option>
       </select>
-      <select id="sort-by" onchange="renderJobs()" class="filter-select">
+      <label class="visually-hidden" for="sort-by">Sort</label>
+      <select id="sort-by" onchange="renderJobs()" class="filter-select" aria-label="Sort jobs">
         <option value="recent">Recently Updated</option>
         <option value="score-desc">Score: High → Low</option>
         <option value="score-asc">Score: Low → High</option>
@@ -1784,25 +1816,31 @@
     </div>
 
     <!-- Status Tabs -->
-    <div class="status-tabs">
-      <button class="status-tab active" data-tab="none" aria-selected="true" onclick="setTab('none')">
+    <div class="status-tabs" role="tablist" aria-label="Job status">
+      <button type="button" role="tab" class="status-tab active" data-tab="none" id="tab-none"
+              aria-selected="true" aria-controls="jobs-list" tabindex="0" onclick="setTab('none')">
         Not Started <span class="tab-count" id="tab-count-none">0</span>
       </button>
-      <button class="status-tab" data-tab="applied" aria-selected="false" onclick="setTab('applied')"
+      <button type="button" role="tab" class="status-tab" data-tab="applied" id="tab-applied"
+              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('applied')"
         title="Applied + Interviewed + Rejected + Hired">
         In progress <span class="tab-count" id="tab-count-applied">0</span>
       </button>
-      <button class="status-tab" data-tab="ignored" aria-selected="false" onclick="setTab('ignored')"
+      <button type="button" role="tab" class="status-tab" data-tab="ignored" id="tab-ignored"
+              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('ignored')"
         title="Ignored + Closed / Expired">
         Ignored <span class="tab-count" id="tab-count-ignored">0</span>
       </button>
     </div>
 
     <!-- Jobs List -->
-    <div id="jobs-list" aria-busy="false"></div>
+    <main>
+      <h2 class="visually-hidden">Jobs</h2>
+      <div id="jobs-list" role="tabpanel" aria-labelledby="tab-none" aria-busy="false"></div>
+    </main>
 
     <!-- Cover Letter Modal -->
-    <div id="cl-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeCL()">
+    <div id="cl-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)requestCloseCL()">
       <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Cover Letter" tabindex="-1">
         <div class="modal-header">
           <h2 class="modal-title">Cover Letter</h2>
@@ -1812,7 +1850,7 @@
             <button onclick="exportCLPdf()" class="btn btn-ghost btn-sm">PDF</button>
             <button id="cl-edit-btn" onclick="toggleEditCL()" class="btn btn-ghost btn-sm">Edit</button>
             <button id="cl-save-btn" onclick="saveCL()" class="btn btn-ghost btn-sm" style="display:none;">Save</button>
-            <button onclick="closeCL()" class="modal-close">&times;</button>
+            <button type="button" onclick="requestCloseCL()" class="modal-close" aria-label="Close cover letter">&times;</button>
           </div>
         </div>
         <pre id="cl-content" class="modal-content"></pre>
@@ -1821,7 +1859,7 @@
     </div>
 
     <!-- Footer -->
-    <div class="footer">
+    <footer class="footer">
       <p class="footer-text">
         Built on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">AI Job Hunt Agent</a>
         <span class="footer-divider">&middot;</span>
@@ -1830,9 +1868,9 @@
         OpenCode Edition by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a>
       </p>
       <p class="footer-text" style="margin-top: 0.3rem;">
-        Free models only &middot; No API charges
+        Free models when available &middot; Your API keys &middot; No Let Me Work account
       </p>
-    </div>
+    </footer>
 
   </div>
 
@@ -1923,7 +1961,7 @@
       if (!confirm(`Soft-delete ${urls.length} job${urls.length === 1 ? '' : 's'}? They won't come back on the next scrape.`)) return;
       let ok = 0;
       for (const url of urls) {
-        if (await softDeleteJob(url, { undoToast: false })) ok++;
+        if (await softDeleteJob(url, { undoToast: false, skipConfirm: true })) ok++;
       }
       clearSelection();
       showToast(`Deleted ${ok} job${ok === 1 ? '' : 's'} (deduped from future scrapes).`);
@@ -2036,7 +2074,12 @@
       showToast(`Archived ${ok} skip job${ok === 1 ? '' : 's'} as Ignored.`);
     }
 
-    async function softDeleteJob(url, { undoToast = true } = {}) {
+    async function softDeleteJob(url, { undoToast = true, skipConfirm = false } = {}) {
+      if (!skipConfirm) {
+        const job = allJobs.find(j => j.url === url);
+        const label = job?.title ? `“${job.title}”` : 'this job';
+        if (!confirm(`Soft-delete ${label}? It won't come back on the next scrape.`)) return false;
+      }
       const job = allJobs.find(j => j.url === url);
       try {
         const res = await fetch('/api/delete', {
@@ -2129,17 +2172,36 @@
         const active = t.dataset.tab === tab;
         t.classList.toggle('active', active);
         t.setAttribute('aria-selected', active);
+        t.tabIndex = active ? 0 : -1;
       });
+      const list = document.getElementById('jobs-list');
+      if (list) list.setAttribute('aria-labelledby', `tab-${tab}`);
       renderJobs();
+    }
+
+    function trapFocus(container, e) {
+      if (e.key !== 'Tab') return;
+      const els = [...container.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )].filter(el => !el.disabled && el.offsetParent !== null);
+      if (!els.length) return;
+      const first = els[0], last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !container.contains(document.activeElement))) {
+        e.preventDefault(); first.focus();
+      }
     }
 
     /* ── toasts ──────────────────────────────────────────
        Replaces banner-based feedback. The old #summary-banner /
        #error-banner elements stay in the DOM (hidden) and still
        receive the message text, but user-facing feedback is toasts. */
-    function showToast(msg, { variant = 'success', actionLabel, onAction, duration = 4000 } = {}) {
+    function showToast(msg, { variant = 'success', actionLabel, onAction, duration = 4000, assertive = false } = {}) {
       const toast = document.createElement('div');
       toast.className = `toast toast--${variant}`;
+      if (assertive || variant === 'error') toast.setAttribute('role', 'alert');
+      else toast.setAttribute('role', 'status');
 
       const text = document.createElement('span');
       text.className = 'toast-msg';
@@ -2322,13 +2384,14 @@
       const fill = document.getElementById('progress-fill');
       if (!fill) return;
       if (status === 'running') {
-        // show determinate progress to current step, keep shimmer
         const pct = Math.min(100, ((step + 0.35) / PIPELINE_STEPS) * 100);
         fill.classList.remove('indeterminate');
-        fill.style.width = pct + '%';
+        fill.style.width = '100%';
+        fill.style.transform = `scaleX(${pct / 100})`;
       } else if (status === 'done') {
         fill.classList.remove('indeterminate');
-        fill.style.width = Math.min(100, ((step + 1) / PIPELINE_STEPS) * 100) + '%';
+        fill.style.width = '100%';
+        fill.style.transform = `scaleX(${Math.min(100, ((step + 1) / PIPELINE_STEPS) * 100) / 100})`;
       }
     }
 
@@ -2354,6 +2417,7 @@
       const btn = document.getElementById('toggle-logs');
       pre.classList.toggle('open', runLogsOpen);
       btn.textContent = runLogsOpen ? 'Hide logs' : 'Show logs';
+      btn.setAttribute('aria-expanded', runLogsOpen ? 'true' : 'false');
       if (runLogsOpen) pre.scrollTop = pre.scrollHeight;
     }
 
@@ -2388,23 +2452,37 @@
       btn.innerHTML = `<span class="spinning" aria-hidden="true">↻</span>${esc(label)}`;
     }
 
-    function runAgent() {
+    async function runAgent() {
+      try {
+        const st = await fetch('/api/run-status').then(r => r.json());
+        if (st.active) {
+          if (!confirm('A run is already in progress. Start anyway? Prefer waiting unless the UI is stuck.')) return;
+        }
+      } catch { /* offline — EventSource will error */ }
+
       const btn = document.getElementById('run-btn');
       const prog = document.getElementById('progress-section');
       const logs = document.getElementById('run-logs');
       const fill = document.getElementById('progress-fill');
+      const cancelBtn = document.getElementById('cancel-run-btn');
 
       clearTimeout(progressHideTimer);
       setBtnLoading(btn, 'Running…');
+      if (cancelBtn) cancelBtn.disabled = false;
       prog.style.display = '';
       prog.classList.remove('progress-exit');
       prog.classList.add('progress-enter');
       logs.textContent = '';
       logs.classList.remove('open');
       runLogsOpen = false;
-      document.getElementById('toggle-logs').textContent = 'Show logs';
+      const toggleLogs = document.getElementById('toggle-logs');
+      if (toggleLogs) {
+        toggleLogs.textContent = 'Show logs';
+        toggleLogs.setAttribute('aria-expanded', 'false');
+      }
       fill.classList.add('indeterminate');
       fill.style.width = '36%';
+      fill.style.transform = '';
       setProgressLive('Working in the background…');
       for (let i = 0; i <= 4; i++) setStep(i, 'pending');
 
@@ -2436,6 +2514,7 @@
           es.close();
           fill.classList.remove('indeterminate');
           fill.style.width = '100%';
+          fill.style.transform = 'scaleX(1)';
           setProgressLive(
             `Done — ${ev.total} jobs, ${ev.above_threshold} above threshold`,
             'done'
@@ -2457,15 +2536,66 @@
         }
       };
 
-      es.onerror = () => {
-        es.close(); reset(btn, prog);
+      es.onerror = async () => {
+        es.close();
+        // Stream end / transient drop: prefer run-status over a false "lost" toast
+        try {
+          const res = await fetch('/api/run-status');
+          const data = await res.json();
+          if (data.active) {
+            reset(btn, prog);
+            document.getElementById('run-status-banner').style.display = '';
+            document.getElementById('run-status-step').textContent = `Step ${data.step || 0}`;
+            document.getElementById('run-status-label').textContent =
+              data.label || 'Still running in the background…';
+            showToast('Live log disconnected — run still active. Refresh when it finishes.', {
+              variant: 'error',
+              duration: 7000,
+            });
+            return;
+          }
+        } catch { /* fall through */ }
+        reset(btn, prog);
         showError('Connection lost. Is the server running?');
       };
+    }
+
+    async function cancelRun() {
+      if (!confirm('Cancel the active run? This run will stop.')) return;
+      const cancelBtn = document.getElementById('cancel-run-btn');
+      if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelling…';
+      }
+      try {
+        const res = await fetch('/api/run/cancel', { method: 'POST' });
+        const data = await res.json();
+        if (data.cancelled) {
+          showToast('Cancel requested — stopping the run…', { duration: 4000 });
+        } else {
+          showToast(data.message || 'No active run', { duration: 3000 });
+          if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = 'Cancel run';
+          }
+        }
+      } catch {
+        showError('Could not cancel run.');
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Cancel run';
+        }
+      }
     }
 
     function reset(btn, prog, opts = {}) {
       btn.disabled = false;
       btn.textContent = 'Run Agent';
+      const cancelBtn = document.getElementById('cancel-run-btn');
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Cancel run';
+      }
       if (opts.keepVisible) {
         progressHideTimer = setTimeout(() => {
           prog.classList.add('progress-exit');
@@ -2485,7 +2615,7 @@
 
     function showError(msg) {
       document.getElementById('error-banner').textContent = msg;
-      showToast(msg, { variant: 'error', duration: 6000 });
+      showToast(msg, { variant: 'error', duration: 6000, assertive: true });
     }
 
     /* ── run status ─────────────────────────────────────── */
@@ -2494,12 +2624,23 @@
         const res = await fetch('/api/run-status');
         const data = await res.json();
         const banner = document.getElementById('run-status-banner');
+        const runBtn = document.getElementById('run-btn');
         if (data.active) {
           banner.style.display = '';
-          document.getElementById('run-status-step').textContent = `Step ${data.step}`;
+          document.getElementById('run-status-step').textContent = `Step ${data.step || 0}`;
           document.getElementById('run-status-label').textContent = data.label || 'Running...';
+          if (runBtn && !runBtn.disabled) {
+            runBtn.disabled = true;
+            runBtn.dataset.busyLock = '1';
+            runBtn.innerHTML = `<span class="spinning" aria-hidden="true">↻</span>Running…`;
+          }
         } else {
           banner.style.display = 'none';
+          if (runBtn && runBtn.dataset.busyLock === '1') {
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run Agent';
+            delete runBtn.dataset.busyLock;
+          }
         }
         if (data.last_run) setLastRunLabel(data.last_run);
       } catch (e) {
@@ -2576,14 +2717,19 @@
     }
 
     function jobCardHtml(job, i) {
+      const rawUrl = job.url ?? '';
+      const safeUrl = /^https?:\/\//i.test(rawUrl) && !rawUrl.includes('@') ? rawUrl : '';
+      const href = safeUrl ? esc(safeUrl) : '#';
+      const label = `${job.title || 'Job'}${job.company ? ' at ' + job.company : ''}`.trim();
+      const name = esc(label);
       return `
       <div class="job-card ${verdictClass(job.verdict)} ${!job.viewed_at ? 'job-new' : ''}"
-           data-url="${esc(job.url ?? '')}" style="--i: ${Math.min(i, 10)};">
+           data-url="${esc(rawUrl)}" style="--i: ${Math.min(i, 10)};">
         <div class="job-head">
           <input type="checkbox" class="job-select"
                  ${selectedUrls.has(job.url) ? 'checked' : ''}
-                 onchange="toggleSelect('${esc(job.url ?? '')}', this.checked)"
-                 aria-label="Select job">
+                 data-action="select"
+                 aria-label="Select ${name}">
           <div class="job-body">
             <div class="job-meta">
               <span class="score-badge ${scoreCls(job.score)}">
@@ -2608,22 +2754,24 @@
             <p>${esc(job.suggested_angle)}</p>
           </details>` : ''}
         <div class="job-actions">
-          <a href="${esc(job.url ?? '#')}" target="_blank" rel="noopener noreferrer"
+          <a href="${href}" target="_blank" rel="noopener noreferrer"
              class="btn-card btn-card--primary"
-             onclick="markJobViewed('${esc(job.url ?? '')}')">
+             data-action="open" aria-label="Open ${name}"${safeUrl ? '' : ' aria-disabled="true"'}>
             Open Job ↗
           </a>
-          <button onclick="openCL('${esc(job.url ?? '')}')"
-            class="btn-card ${job.has_cover_letter ? 'btn-card--primary' : ''}">
+          <button type="button" data-action="cl"
+            class="btn-card ${job.has_cover_letter ? 'btn-card--primary' : ''}"
+            aria-label="${job.has_cover_letter ? 'Cover letter' : 'Generate cover letter'} for ${name}">
             ${job.has_cover_letter ? 'Cover Letter' : 'Generate CL'}
           </button>
-          <button onclick="softDeleteJob('${esc(job.url ?? '')}')"
-            class="btn-card" title="Soft-delete — skipped on future scrapes">
+          <button type="button" data-action="delete"
+            class="btn-card" title="Soft-delete — skipped on future scrapes"
+            aria-label="Delete ${name}">
             Delete
           </button>
           <span class="spacer"></span>
-          <select class="status-dropdown ${statusCls(job.status)}"
-                  onchange="changeStatus('${esc(job.url ?? '')}', this.value)">
+          <select class="status-dropdown ${statusCls(job.status)}" data-action="status"
+                  aria-label="Status for ${name}">
             <option value="none" ${(job.status || 'none') === 'none' ? 'selected' : ''}>Not Started</option>
             <option value="applied" ${job.status === 'applied' ? 'selected' : ''}>Applied ✓</option>
             <option value="ignored" ${job.status === 'ignored' ? 'selected' : ''}>Ignored</option>
@@ -2635,6 +2783,44 @@
         </div>
       </div>`;
     }
+
+    function cardUrlFrom(el) {
+      const card = el.closest('.job-card');
+      return card ? (card.getAttribute('data-url') || '') : '';
+    }
+
+    (function bindJobsListDelegation() {
+      const list = document.getElementById('jobs-list');
+      if (!list || list.dataset.bound === '1') return;
+      list.dataset.bound = '1';
+      list.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-action]');
+        if (!t || !list.contains(t)) return;
+        const action = t.dataset.action;
+        const url = cardUrlFrom(t);
+        if (action === 'open') {
+          if (!url || t.getAttribute('href') === '#') {
+            e.preventDefault();
+            return;
+          }
+          markJobViewed(url);
+          return;
+        }
+        if (action === 'cl') { e.preventDefault(); openCL(url); return; }
+        if (action === 'delete') { e.preventDefault(); softDeleteJob(url); }
+      });
+      list.addEventListener('change', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement) || !list.contains(t)) return;
+        const action = t.dataset.action;
+        const url = cardUrlFrom(t);
+        if (action === 'select' && t instanceof HTMLInputElement) {
+          toggleSelect(url, t.checked);
+        } else if (action === 'status' && t instanceof HTMLSelectElement) {
+          changeStatus(url, t.value);
+        }
+      });
+    })();
 
     function renderJobs() {
       const verdict = document.getElementById('filter-verdict').value;
@@ -2792,10 +2978,12 @@
     let currentCLUrl = '';
     let isEditingCL = false;
     let isGeneratingCL = false;
+    let clSavedOk = false;
     let clOpener = null; // element to restore focus to on close
 
     async function openCL(url) {
       currentCLUrl = url;
+      clSavedOk = false;
       clOpener = document.activeElement;
       const modal = document.getElementById('cl-modal');
       const content = document.getElementById('cl-content');
@@ -2852,6 +3040,8 @@
         genBtn.textContent = 'Regenerate';
         const job = allJobs.find(j => j.url === currentCLUrl);
         if (job) job.has_cover_letter = true;
+        clSavedOk = true;
+        await loadJobs();
         renderJobs();
       } catch (e) {
         content.textContent = `Generation failed: ${e.message}. Try again.`;
@@ -2862,11 +3052,24 @@
       }
     }
 
+    function requestCloseCL() {
+      if (isGeneratingCL) {
+        if (!confirm('Cover letter is still generating. Close anyway? Generation continues; the job card will update when it finishes.')) {
+          return;
+        }
+      }
+      closeCL();
+    }
+
     function closeCL() {
       document.getElementById('cl-modal').style.display = 'none';
       document.body.style.overflow = '';
       if (clOpener && document.contains(clOpener)) clOpener.focus();
       clOpener = null;
+      if (clSavedOk) {
+        clSavedOk = false;
+        loadJobs().then(() => renderJobs());
+      }
     }
 
     function toggleEditCL() {
@@ -2967,6 +3170,20 @@
     async function bulkApply() {
       const btn = document.getElementById('bulk-apply-btn');
       const tier = TIERS[tierIdx];
+      const eligible = allJobs.filter(j => {
+        if ((j.status || 'none') !== 'none') return false;
+        const s = j.score || 0;
+        if (tier.min !== null && s < tier.min) return false;
+        if (tier.max !== null && s > tier.max) return false;
+        return !!j.url;
+      });
+      if (eligible.length === 0) {
+        showError(`No Not Started jobs for "${tier.label}".`);
+        return;
+      }
+      if (!confirm(
+        `Mark ${eligible.length} Not Started job${eligible.length !== 1 ? 's' : ''} as applied (${tier.label}) and open their links?\n\nIgnored, hired, and other statuses are left unchanged.`
+      )) return;
       setBtnLoading(btn, 'Applying…');
       let url = '/api/bulk-apply';
       const params = [];
@@ -2978,7 +3195,7 @@
         if (!res.ok) throw new Error('server error');
         const { urls, count } = await res.json();
         if (count === 0) {
-          showError(`No jobs found for "${tier.label}" filter.`);
+          showError(`No Not Started jobs found for "${tier.label}".`);
           return;
         }
         showSuccess(`Marked ${count} job${count !== 1 ? 's' : ''} as applied (${tier.label}). Opening links…`);
@@ -3052,6 +3269,9 @@
       wizardStep = 0;
       renderWizardStep();
       fillWizardFromStatus();
+      requestAnimationFrame(() => {
+        document.querySelector('#wizard-overlay .wizard-panel')?.focus();
+      });
     }
 
     function hideWizard() {
@@ -3207,10 +3427,14 @@
         setupStatus = await fetchSetupStatus();
         document.getElementById('settings-keys-path').textContent = setupStatus.keys_path || '';
         document.getElementById('set-firecrawl').value = '';
+        document.getElementById('set-firecrawl-backup').value = '';
         document.getElementById('set-openrouter').value = '';
         document.getElementById('set-firecrawl').placeholder = setupStatus.has_firecrawl
-          ? setupStatus.firecrawl_masked + ' (saved — leave blank to keep)'
+          ? (setupStatus.firecrawl_masked || 'saved') + ' (saved — leave blank to keep)'
           : 'fc-…';
+        document.getElementById('set-firecrawl-backup').placeholder = setupStatus.has_firecrawl_backup
+          ? setupStatus.firecrawl_backup_masked + ' (saved — leave blank to keep)'
+          : 'fc-… (optional backup)';
         document.getElementById('set-openrouter').placeholder = setupStatus.has_openrouter
           ? setupStatus.openrouter_masked + ' (saved — leave blank to keep)'
           : 'sk-or-… (optional)';
@@ -3232,6 +3456,10 @@
         }
         await loadSourceChecks();
         document.getElementById('settings-overlay').classList.add('open');
+        settingsOpener = document.activeElement;
+        requestAnimationFrame(() => {
+          document.getElementById('set-firecrawl')?.focus();
+        });
       } catch {
         showToast('Could not load settings.', { variant: 'error' });
       }
@@ -3256,16 +3484,22 @@
         .map(el => el.dataset.board);
     }
 
+    let settingsOpener = null;
+
     function closeSettings() {
       document.getElementById('settings-overlay').classList.remove('open');
+      if (settingsOpener && document.contains(settingsOpener)) settingsOpener.focus();
+      settingsOpener = null;
     }
 
     async function saveSettings() {
       try {
         const fc = document.getElementById('set-firecrawl').value.trim();
+        const fcBackup = document.getElementById('set-firecrawl-backup').value.trim();
         const ork = document.getElementById('set-openrouter').value.trim();
         const body = {};
         if (fc) body.firecrawl_key = fc;
+        if (fcBackup) body.firecrawl_backup_key = fcBackup;
         if (ork) body.openrouter_key = ork;
         if (Object.keys(body).length) {
           const res = await fetch('/api/setup/keys', {
@@ -3315,31 +3549,39 @@
       const settings = document.getElementById('settings-overlay');
       if (settings?.classList.contains('open')) {
         if (e.key === 'Escape') closeSettings();
+        else if (e.key === 'Tab') trapFocus(settings.querySelector('.settings-panel') || settings, e);
         return;
       }
       if (wizard?.classList.contains('open')) {
+        if (e.key === 'Tab') trapFocus(wizard.querySelector('.wizard-panel') || wizard, e);
         return; // Esc does not dismiss first-run wizard
       }
 
       const modal = document.getElementById('cl-modal');
       if (modal.style.display !== 'none') {
         if (e.key === 'Escape') {
-          if (!isGeneratingCL) closeCL(); // don't close mid-generation
+          requestCloseCL();
           return;
         }
         if (e.key === 'Tab') {
-          // simple focus trap: cycle within visible modal controls
-          const els = [...modal.querySelectorAll('button, textarea, a[href]')]
-            .filter(el => el.offsetParent !== null && !el.disabled);
-          if (!els.length) return;
-          const first = els[0], last = els[els.length - 1];
-          if (e.shiftKey && document.activeElement === first) {
-            e.preventDefault(); last.focus();
-          } else if (!e.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
-            e.preventDefault(); first.focus();
-          }
+          trapFocus(modal.querySelector('.modal-panel') || modal, e);
         }
         return;
+      }
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const tab = e.target.closest?.('[role="tab"]');
+        if (tab && tab.closest('[role="tablist"]')) {
+          e.preventDefault();
+          const tabs = [...document.querySelectorAll('.status-tab')];
+          const i = tabs.indexOf(tab);
+          const next = e.key === 'ArrowRight'
+            ? tabs[(i + 1) % tabs.length]
+            : tabs[(i - 1 + tabs.length) % tabs.length];
+          setTab(next.dataset.tab);
+          next.focus();
+          return;
+        }
       }
 
       const search = document.getElementById('search-input');

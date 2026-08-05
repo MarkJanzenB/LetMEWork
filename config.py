@@ -50,9 +50,11 @@ GENERATE_COVER_LETTERS_IN_PIPELINE = False
 # Models are discovered dynamically by model_prober.py and cached in
 # data/healthy_models.json. No hardcoded list needed.
 MAX_RETRIES = 3  # Retries per model before moving to next
+# Hard ceiling across all models/re-probes — prevents infinite rotation
+MAX_OPENCODE_ATTEMPTS = 15
 STALL_TIMEOUT = 600  # Hard cap on total runtime per attempt (10 minutes)
 STALL_SILENCE_TIMEOUT = 90  # Kill if no output for this long (seconds)
-PROBE_CACHE_TTL = 3600  # Re-probe models after this many seconds (1 hour)
+PROBE_CACHE_TTL = 7 * 24 * 3600  # Re-probe healthy models after 1 week
 
 # ── scraping settings ──────────────────────────────────
 MAX_PAGES_TO_SCRAPE = 20
@@ -81,15 +83,6 @@ DEFAULT_CONFIG = {
         "glassdoor.com",
         "jobstreet.com",
     ],
-    "reddit_groups": [
-        {"name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"]},
-        {"name": "Freelance/gig", "subreddits": ["freelance", "Upwork"]},
-        {
-            "name": "Community",
-            "subreddits": ["forhire", "digitalnomad", "remotework"],
-            "extra_terms": "hiring",
-        },
-    ],
 }
 
 
@@ -106,10 +99,12 @@ def load_search_config() -> dict:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
+                    data.pop("reddit_groups", None)  # legacy key ignored
                     cfg.update(data)
             except (json.JSONDecodeError, OSError):
                 pass
             break
+    cfg.pop("reddit_groups", None)
     return cfg
 
 
@@ -206,17 +201,7 @@ def validate_config() -> bool:
                 for board in cfg["job_boards"]:
                     if not isinstance(board, str):
                         raise ValueError(f"Invalid job board: {board}")
-
-            if "reddit_groups" in cfg:
-                if not isinstance(cfg["reddit_groups"], list):
-                    raise ValueError("reddit_groups must be a list")
-                for group in cfg["reddit_groups"]:
-                    if not isinstance(group, dict):
-                        raise ValueError(f"Invalid reddit group: {group}")
-                    if "name" not in group or "subreddits" not in group:
-                        raise ValueError(f"Reddit group missing required fields: {group}")
-                    if not isinstance(group["subreddits"], list):
-                        raise ValueError(f"subreddits must be a list: {group}")
+            # reddit_groups ignored if present (legacy)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in config.json: {e}")
 

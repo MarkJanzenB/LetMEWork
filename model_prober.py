@@ -1,24 +1,30 @@
-"""Model health prober — discovers and tests all available models across
-OpenRouter, Ollama, and opencode built-in providers.
+"""Model health prober — discovers and tests models across
+OpenRouter, Ollama, and OpenCode built-in providers.
 
-Saves working models to data/healthy_models.json so the pipeline can
-rotate through known-good models without re-probing every run.
+Ollama is probed via the Ollama HTTP API (not OpenCode). Healthy Ollama
+models are written into opencode.json's provider.ollama.models so OpenCode
+can see them. OpenRouter / OpenCode builtins are still probed via OpenCode.
 """
 
 import json
-import shutil
+import os
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import config
+import user_data
 
 HEALTH_FILE = config.DATA_DIR / "healthy_models.json"
 PROBE_PROMPT = "Reply with only the word hello."
-PROBE_TIMEOUT = 30  # seconds per model probe
+PROBE_TIMEOUT = 30  # seconds per OpenCode model probe
+OLLAMA_PROBE_TIMEOUT = 60  # local/cloud Ollama generate can be slower
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
 
-# ── candidate models by provider ──────────────────────────────
+# ── OpenRouter / OpenCode candidates (still probed via OpenCode) ──
 
 
 def _openrouter_candidates() -> list[str]:
@@ -39,36 +45,6 @@ def _openrouter_candidates() -> list[str]:
     ]
 
 
-def _ollama_candidates() -> list[str]:
-    """Discover Ollama models — both local and cloud. Gemma 4 cloud models
-    are preferred for quality."""
-    try:
-        result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return []
-        models = []
-        for line in result.stdout.strip().splitlines()[1:]:  # skip header
-            name = line.split()[0].strip()
-            if name:
-                models.append(f"ollama/{name}")
-        return models
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
-
-
-def _ollama_cloud_candidates() -> list[str]:
-    """Hardcoded Ollama cloud Gemma 4 models — probe even if not pulled locally."""
-    return [
-        "ollama/gemma4:31b-cloud",
-        "ollama/gemma4:e2b",
-    ]
-
-
 def _opencode_builtin_candidates() -> list[str]:
     """Known opencode built-in free models."""
     return [
@@ -77,14 +53,132 @@ def _opencode_builtin_candidates() -> list[str]:
     ]
 
 
-# ── probing ───────────────────────────────────────────────────
+# ── Ollama via native HTTP API ────────────────────────────────
 
 
-def _probe_model(model_id: str) -> bool:
-    """Test a model by sending a trivial prompt. Returns True if it responds."""
+def _ollama_list_models() -> list[str]:
+    """All model tags from the local Ollama daemon."""
+    try:
+        print(f"  Listing Ollama models ({OLLAMA_HOST})...", flush=True)
+        with urllib.request.urlopen(f"{OLLAMA_HOST}/api/tags", timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        names = []
+        for m in data.get("models") or []:
+            name = (m.get("name") or "").strip()
+            if name:
+                names.append(name)
+        return names
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        print(f"  Ollama list failed: {e}", flush=True)
+        return []
+
+
+def _probe_ollama_model(name: str) -> bool:
+    """Health-check one Ollama model via /api/generate (not OpenCode)."""
+    body = json.dumps(
+        {
+            "model": name,
+            "prompt": PROBE_PROMPT,
+            "stream": False,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=OLLAMA_PROBE_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        return bool((data.get("response") or "").strip())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return False
+
+
+def probe_ollama_models() -> list[str]:
+    """Probe every model Ollama reports; return healthy bare tags."""
+    names = _ollama_list_models()
+    if not names:
+        print("  No Ollama models found (is `ollama serve` running?)", flush=True)
+        return []
+
+    total = len(names)
+    print(f"  Probing {total} Ollama model(s) via Ollama API...", flush=True)
+    healthy: list[str] = []
+    for i, name in enumerate(names, 1):
+        print(f"    [{i}/{total}] ollama/{name}...", end="", flush=True)
+        ok = _probe_ollama_model(name)
+        print(f" {'✓' if ok else '✗'}", flush=True)
+        if ok:
+            healthy.append(name)
+    return healthy
+
+
+def _opencode_json_path() -> Path:
+    """Project opencode.json (dev) or resource dir when packaged."""
+    repo = Path(__file__).resolve().parent / "opencode.json"
+    if repo.is_file() or not user_data.is_frozen():
+        return repo
+    return config.BASE_DIR / "opencode.json"
+
+
+def sync_ollama_models_to_opencode(healthy_names: list[str]) -> None:
+    """Write healthy Ollama tags into opencode.json provider.ollama.models."""
+    path = _opencode_json_path()
+    cfg: dict = {}
+    if path.is_file():
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  Could not read {path}: {e} — skipping OpenCode sync", flush=True)
+            return
+
+    provider = cfg.setdefault("provider", {})
+    ollama = provider.setdefault("ollama", {})
+    ollama["npm"] = ollama.get("npm") or "@ai-sdk/openai-compatible"
+    ollama["name"] = ollama.get("name") or "Ollama"
+    options = ollama.setdefault("options", {})
+    options["baseURL"] = options.get("baseURL") or f"{OLLAMA_HOST}/v1"
+    ollama["models"] = {name: {"name": name} for name in healthy_names}
+
+    try:
+        path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        print(
+            f"  Synced {len(healthy_names)} Ollama model(s) → {path} (provider.ollama)",
+            flush=True,
+        )
+    except OSError as e:
+        print(f"  Could not write {path}: {e}", flush=True)
+
+
+# ── OpenCode probing (non-Ollama providers) ───────────────────
+
+
+def _kill_probe(proc: subprocess.Popen) -> None:
+    """Kill probe process tree; drain pipes so communicate can't hang."""
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=10,
+            )
+        else:
+            proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.communicate(timeout=5)
+    except Exception:
+        pass
+
+
+def _probe_opencode_model(model_id: str) -> bool:
+    """Test a model via `opencode run` (OpenRouter / builtins)."""
     import re
 
-    opencode_exe = shutil.which("opencode")
+    opencode_exe = user_data.find_opencode()
     if not opencode_exe:
         return False
     proc = None
@@ -101,42 +195,39 @@ def _probe_model(model_id: str) -> bool:
         return bool(stdout)
     except subprocess.TimeoutExpired:
         if proc is not None:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            _kill_probe(proc)
         return False
     except Exception:
+        if proc is not None:
+            _kill_probe(proc)
         return False
 
 
 def probe_all_models() -> list[dict]:
-    """Probe every candidate model across all providers.
-    Returns a list of healthy model dicts sorted by provider then name.
-    """
-    candidates = (
-        _ollama_cloud_candidates()  # Gemma 4 cloud first — best quality
-        + _ollama_candidates()  # local ollama models
-        + _openrouter_candidates()
-        + _opencode_builtin_candidates()
-    )
-
-    total = len(candidates)
-    print(f"  Probing {total} candidate models...")
+    """Probe Ollama natively, sync into OpenCode, then probe other providers."""
     healthy: list[dict] = []
-    for i, model_id in enumerate(candidates, 1):
+    now = time.time()
+
+    ollama_ok = probe_ollama_models()
+    if ollama_ok:
+        sync_ollama_models_to_opencode(ollama_ok)
+        for name in ollama_ok:
+            healthy.append(
+                {"model": f"ollama/{name}", "provider": "ollama", "last_ok": now}
+            )
+
+    others = _openrouter_candidates() + _opencode_builtin_candidates()
+    total = len(others)
+    if total:
+        print(f"  Probing {total} OpenCode/OpenRouter model(s)...", flush=True)
+    for i, model_id in enumerate(others, 1):
         provider = model_id.split("/")[0]
-        print(f"    [{i}/{total}] Probing {model_id}...", end="", flush=True)
-        ok = _probe_model(model_id)
-        status = "✓" if ok else "✗"
-        print(f" {status}")
+        print(f"    [{i}/{total}] {model_id}...", end="", flush=True)
+        ok = _probe_opencode_model(model_id)
+        print(f" {'✓' if ok else '✗'}", flush=True)
         if ok:
             healthy.append(
-                {
-                    "model": model_id,
-                    "provider": provider,
-                    "last_ok": time.time(),
-                }
+                {"model": model_id, "provider": provider, "last_ok": time.time()}
             )
 
     return healthy
@@ -153,39 +244,71 @@ def save_healthy_models(models: list[dict]) -> None:
         "models": models,
     }
     HEALTH_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    print(f"  Saved {len(models)} healthy models to {HEALTH_FILE}")
+    print(f"  Saved {len(models)} healthy models to {HEALTH_FILE}", flush=True)
 
 
-def load_healthy_models(max_age_seconds: float = 3600) -> list[str]:
-    """Load healthy model IDs from disk. Returns empty list if file is
-    missing, stale (older than max_age_seconds), or has no models.
-    """
+def _models_from_disk() -> tuple[list[str], float | None]:
+    """Return (model ids, probed_at) from cache file; empty if unreadable."""
     if not HEALTH_FILE.exists():
-        return []
+        return [], None
     try:
         data = json.loads(HEALTH_FILE.read_text(encoding="utf-8"))
-        age = time.time() - data.get("probed_at", 0)
-        if age > max_age_seconds:
-            print(f"  Model cache stale ({int(age)}s old) — will re-probe")
-            return []
-        models = data.get("models", [])
-        return [m["model"] for m in models if m.get("model")]
-    except (json.JSONDecodeError, KeyError):
+        models = [m["model"] for m in data.get("models", []) if m.get("model")]
+        return models, data.get("probed_at")
+    except (json.JSONDecodeError, KeyError, OSError, TypeError):
+        return [], None
+
+
+def load_healthy_models(max_age_seconds: float | None = None) -> list[str]:
+    """Load healthy model IDs from disk if cache is fresh.
+
+    Older than PROBE_CACHE_TTL (default 1 week) → [] so caller re-probes.
+    Missing/empty → [].
+    """
+    if max_age_seconds is None:
+        max_age_seconds = float(config.PROBE_CACHE_TTL)
+    models, probed_at = _models_from_disk()
+    if not models:
         return []
+    if probed_at is None:
+        return models
+    age = time.time() - probed_at
+    if age > max_age_seconds:
+        days = age / 86400
+        print(
+            f"  Model cache stale ({days:.1f}d old) — will re-probe",
+            flush=True,
+        )
+        return []
+    return models
 
 
 def get_healthy_models(force_probe: bool = False) -> list[str]:
-    """Get healthy models: load from cache if fresh, otherwise probe all."""
+    """Load cache if fresher than a week; otherwise probe all providers.
+
+    If a forced/stale re-probe finds nothing, fall back to whatever is still
+    on disk so a flaky probe night doesn't brick the pipeline.
+    """
+    stale_fallback, _ = _models_from_disk()
     if not force_probe:
         cached = load_healthy_models()
         if cached:
-            print(f"  Loaded {len(cached)} healthy models from cache")
+            print(f"  Loaded {len(cached)} healthy models from cache", flush=True)
             return cached
 
-    print("  Probing all model providers...")
+    print("  Probing all model providers...", flush=True)
     healthy = probe_all_models()
     if healthy:
         save_healthy_models(healthy)
-    else:
-        print("  WARNING: No healthy models found!")
-    return [m["model"] for m in healthy]
+        return [m["model"] for m in healthy]
+
+    if stale_fallback:
+        print(
+            f"  WARNING: Probe found no healthy models — "
+            f"falling back to {len(stale_fallback)} cached model(s)",
+            flush=True,
+        )
+        return stale_fallback
+
+    print("  WARNING: No healthy models found!", flush=True)
+    return []
