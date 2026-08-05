@@ -14,6 +14,24 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ### Fixed
 ### Removed
 
+## [0.1.0-beta.2] — 2026-08-06
+
+Coherent public beta: React-era app tagged and published under **LetMEWork**.
+
+### Added
+- React + Vite dashboard (onboarding, jobs, cover letters, Settings) served by FastAPI
+- Opt-in auto-update (`latest.json`) with notify-only default; Check for updates in Settings
+- Release workflow docs (`CHANGELOG`, `RELEASE.md`, `scripts/bump_version.py`, Cursor release rule)
+- README **About** + **Models & providers** (Ollama probe → sync into OpenCode → `opencode run`)
+
+### Changed
+- Repo identity / update feed → `MarkJanzenB/LetMEWork`
+- Inno post-install surfaces OpenCode install failures with retry
+- Dual copyright NOTICE; clearer provenance vs Kurt’s core workflow
+
+### Fixed
+- Tag/source mismatch vs first Setup (beta.1 tag predated React commit)
+
 ## [0.1.0-beta.1] — 2026-08-05
 
 First public beta of the Let Me Work (OpenCode) edition.
@@ -22,9 +40,7 @@ First public beta of the Let Me Work (OpenCode) edition.
 - OpenCode AI runtime (replaces Claude CLI) with model health probing and rotation
 - SQLite job store, run history, soft-delete / restore
 - First-run onboarding (keys → resume → boards) and AppData BYOK storage
-- React + Vite dashboard served by FastAPI; legacy `ui/` fallback
-- Windows installer (PyInstaller + Inno) with OpenCode/Node post-install retry
-- Opt-in auto-update via GitHub Release `latest.json` (default: notify only)
+- Windows installer (PyInstaller + Inno) with OpenCode/Node post-install
 - Firecrawl primary + backup API key failover
 - Cover letters on demand; run cancel / active-run guards
 
@@ -32,5 +48,6 @@ First public beta of the Let Me Work (OpenCode) edition.
 - Core scrape-and-score workflow: [Kurt Chan / AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper)
 - Let Me Work edition: [Mark Janzen Bandola](https://github.com/MarkJanzenB)
 
-[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.1
