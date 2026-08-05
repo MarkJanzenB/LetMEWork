@@ -1,14 +1,15 @@
 ; Let Me Work — Inno Setup script (unsigned pre-release)
 ; Prerequisites:
-;   1. pyinstaller packaging/letmework.spec  → dist\LetMeWork.exe
-;   2. Inno Setup 6 → Compile this script
-; OpenCode + Node.js installed via official CLI/winget/MSI during post-install (NOT bundled).
-; Signing is optional later — see SIGNING.md. SmartScreen warnings on unsigned builds are expected.
+;   1. cd frontend && npm ci && npm run build
+;   2. pyinstaller packaging/letmework.spec  → dist\LetMeWork.exe
+;   3. Inno Setup 6 → Compile this script
+; OpenCode + Node.js installed via official CLI during post-install (NOT bundled).
+; Signing is optional later — see SIGNING.md. SmartScreen: More info → Run anyway.
 
 #define MyAppName "Let Me Work"
 #define MyAppVersion "0.1.0-beta.1"
 #define MyAppPublisher "Mark Janzen Bandola"
-#define MyAppURL "https://github.com/MarkJanzenB"
+#define MyAppURL "https://github.com/MarkJanzenB/ai-job-scraper"
 #define MyAppExeName "LetMeWork.exe"
 
 [Setup]
@@ -26,12 +27,10 @@ OutputBaseFilename=LetMeWork-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-; Per-user install — fewer UAC prompts / less AV suspicion than admin
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 InfoBeforeFile=INFO_BEFORE.txt
 SetupLogging=yes
-; Version resources help Windows / SmartScreen identify the publisher
 VersionInfoVersion=0.1.0.1
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} — local AI job finder
@@ -56,9 +55,55 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; Official Node.js (if needed) + OpenCode — not bundled binaries
-Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_opencode.ps1"""; \
-  StatusMsg: "Installing dependencies (Node.js + OpenCode)…"; \
-  Flags: waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function InstallOpenCodeDeps: Boolean;
+var
+  ResultCode: Integer;
+  Retry: Boolean;
+begin
+  Result := True;
+  Retry := True;
+  while Retry do
+  begin
+    if not Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\install_opencode.ps1') + '"',
+      '', SW_SHOW, ewWaitUntilTerminated, ResultCode
+    ) then
+    begin
+      ResultCode := -1;
+    end;
+    if ResultCode = 0 then
+    begin
+      Retry := False;
+    end
+    else
+    begin
+      if MsgBox(
+        'OpenCode / Node.js setup failed (exit code ' + IntToStr(ResultCode) + ').' + #13#10 + #13#10 +
+        'Retry now? Choose No to finish install and set up OpenCode later:' + #13#10 +
+        '  npm install -g opencode-ai',
+        mbConfirmation, MB_YESNO
+      ) = IDNO then
+      begin
+        MsgBox(
+          'Let Me Work is installed, but the agent needs OpenCode before scraping.' + #13#10 +
+          'Docs: https://opencode.ai/docs/',
+          mbInformation, MB_OK
+        );
+        Retry := False;
+        Result := False;
+      end;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    InstallOpenCodeDeps();
+  end;
+end;

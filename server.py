@@ -13,6 +13,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -39,16 +40,139 @@ run_lock = threading.Lock()
 
 
 def _ui_index() -> Path:
-    return config.BASE_DIR / "ui" / "index.html"
+    """Prefer React build; fall back to vanilla ui/index.html."""
+    if user_data.is_frozen():
+        for path in (
+            config.BASE_DIR / "frontend" / "dist" / "index.html",
+            config.BASE_DIR / "ui" / "index.html",
+        ):
+            if path.is_file():
+                return path
+        return config.BASE_DIR / "ui" / "index.html"
+    for path in (Path("frontend/dist/index.html"), Path("ui/index.html")):
+        if path.is_file():
+            return path
+    # Dev: allow running with cwd ≠ repo root
+    for path in (
+        config.BASE_DIR / "frontend" / "dist" / "index.html",
+        config.BASE_DIR / "ui" / "index.html",
+    ):
+        if path.is_file():
+            return path
+    return Path("ui/index.html")
+
+
+def _frontend_dist() -> Path | None:
+    if user_data.is_frozen():
+        path = config.BASE_DIR / "frontend" / "dist"
+        return path if path.is_dir() and (path / "index.html").is_file() else None
+    for path in (Path("frontend/dist"), config.BASE_DIR / "frontend" / "dist"):
+        if path.is_dir() and (path / "index.html").is_file():
+            return path
+    return None
 
 
 @app.get("/")
 async def index():
-    path = _ui_index()
-    if not path.is_file():
-        # Dev/tests: cwd-relative fallback
-        path = Path("ui/index.html")
-    return FileResponse(path)
+    return FileResponse(_ui_index())
+
+
+@app.get("/api/deps")
+async def deps_status():
+    st = user_data.setup_status()
+    return {
+        "opencode_found": st["opencode_found"],
+        "opencode_path": st.get("opencode_path") or "",
+        "version": st["version"],
+        "has_firecrawl": st["has_firecrawl"],
+        "has_resume": st["has_resume"],
+    }
+
+
+def _update_feed_url() -> str:
+    return os.environ.get(
+        "LETMEWORK_UPDATE_URL",
+        "https://github.com/MarkJanzenB/ai-job-scraper/releases/latest/download/latest.json",
+    )
+
+
+def _fetch_latest_manifest() -> dict:
+    import urllib.request
+
+    with urllib.request.urlopen(_update_feed_url(), timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _version_newer(latest: str, current: str) -> bool:
+    """True if latest looks different/newer than current (string compare is enough for tagged betas)."""
+    return bool(latest) and latest.strip() != current.strip()
+
+
+@app.get("/api/update/check")
+async def update_check():
+    """Compare APP_VERSION to latest.json on GitHub Releases (best-effort)."""
+    import urllib.error
+
+    current = config.APP_VERSION
+    try:
+        data = _fetch_latest_manifest()
+        latest = str(data.get("version") or "")
+        return {
+            "update_available": _version_newer(latest, current),
+            "current": current,
+            "latest": latest or None,
+            "installer_url": data.get("installer_url"),
+            "sha256": data.get("sha256"),
+        }
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        return {
+            "update_available": False,
+            "current": current,
+            "error": str(e),
+        }
+
+
+@app.post("/api/update/apply")
+async def update_apply():
+    """Download Setup, verify sha256, launch installer, then quit this process."""
+    import hashlib
+    import subprocess
+    import tempfile
+    import urllib.error
+    import urllib.request
+
+    try:
+        data = _fetch_latest_manifest()
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch update manifest: {e}")
+
+    url = data.get("installer_url")
+    expected = (data.get("sha256") or "").strip().lower()
+    if not url or not expected:
+        raise HTTPException(status_code=400, detail="Manifest missing installer_url or sha256")
+
+    try:
+        with urllib.request.urlopen(url, timeout=120) as resp:
+            blob = resp.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise HTTPException(status_code=502, detail=f"Download failed: {e}")
+
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != expected:
+        raise HTTPException(status_code=400, detail="Installer checksum mismatch — aborted")
+
+    dest = Path(tempfile.gettempdir()) / (Path(str(url)).name or "LetMeWork-Setup.exe")
+    dest.write_bytes(blob)
+    subprocess.Popen([str(dest)], shell=False)
+
+    def _quit():
+        import time
+
+        time.sleep(1.5)
+        os._exit(0)
+
+    threading.Thread(target=_quit, daemon=True).start()
+    return {"ok": True, "path": str(dest)}
 
 
 @app.get("/api/jobs")
@@ -170,6 +294,7 @@ class ResumeBody(BaseModel):
 
 class SettingsBody(BaseModel):
     onboarding_complete: bool | None = None
+    auto_update: bool | None = None
 
 
 @app.get("/api/setup/status")
@@ -267,6 +392,9 @@ async def setup_complete(body: SettingsBody = SettingsBody()):
             status_code=400,
             detail="OpenCode not found — reinstall the app or install OpenCode",
         )
+    boards = config.load_search_config().get("job_boards") or []
+    if not boards:
+        raise HTTPException(status_code=400, detail="Select at least one job board before finishing setup")
     updates = {"onboarding_complete": True}
     user_data.save_settings(updates)
     return user_data.setup_status()
@@ -562,6 +690,23 @@ async def cancel_run():
 
     request_pipeline_cancel()
     return JSONResponse({"ok": True, "cancelled": True})
+
+
+# React SPA assets (prod). Dev uses Vite proxy → this API.
+_dist = _frontend_dist()
+if _dist is not None:
+    _assets = _dist / "assets"
+    if _assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        if not full_path or full_path.startswith("api/") or full_path == "api":
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = _dist / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_dist / "index.html")
 
 
 if __name__ == "__main__":

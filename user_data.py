@@ -110,6 +110,7 @@ def default_settings() -> dict:
     return {
         "onboarding_complete": False,
         "version_seen": APP_VERSION,
+        "auto_update": False,
     }
 
 
@@ -271,6 +272,7 @@ def setup_status() -> dict:
         "opencode_install_url": OPENCODE_INSTALL_URL,
         "frozen": is_frozen(),
         "ready": ready,
+        "auto_update": bool(settings.get("auto_update", False)),
     }
 
 

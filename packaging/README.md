@@ -5,13 +5,30 @@ Unsigned pre-release Windows build: local app + OpenCode via **official CLI** + 
 ## Build order
 
 ```bat
+:: 1) React UI
+cd frontend
+npm ci
+npm run build
+cd ..
+
+:: 2) Frozen EXE (bundles frontend/dist + prompts)
 pip install -r requirements.txt
 pip install pyinstaller
 pyinstaller packaging/letmework.spec
 
-:: Compile packaging/LetMeWork.iss with Inno Setup 6
-:: Post-install runs packaging/install_opencode.ps1
+:: 3) Compile packaging/LetMeWork.iss with Inno Setup 6
+::    → dist\installer\LetMeWork-Setup-<ver>.exe
+:: Post-install runs packaging/install_opencode.ps1 (retry on failure)
 ```
+
+## Updates feed (GitHub Release)
+
+Attach both assets to each release:
+
+- `LetMeWork-Setup-<ver>.exe`
+- `latest.json` — `{ "version", "installer_url", "sha256" }`
+
+App checks `…/releases/latest/download/latest.json`. Settings: opt-in auto-update (default off) or banner + Update now.
 
 ## Dependencies the installer pulls in
 
@@ -20,9 +37,10 @@ Post-install script (`install_opencode.ps1`):
 1. Skip if `opencode` already on PATH  
 2. Else try Scoop/Choco for OpenCode directly  
 3. Else install **Node.js LTS** (winget → choco → scoop → official nodejs.org MSI)  
-4. Then `npm install -g opencode-ai`
+4. Then `npm install -g opencode-ai`  
+5. Exit **1** if OpenCode still missing (Inno offers Retry)
 
-Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + Firecrawl client + pypdf, etc.
+Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + React SPA + Firecrawl client + pypdf, etc.
 
 Not installed (BYOK): Firecrawl / OpenRouter API keys.
 
@@ -37,6 +55,7 @@ Not installed (BYOK): Firecrawl / OpenRouter API keys.
 | Clear publisher + VersionInfo* | Helps Windows identify the software |
 | Honest InfoBefore text | User consent for OpenCode network install |
 | SetupLogging | Easier support / audit |
+| Stable AppId | Later Setups upgrade in place |
 
 **Honest limit:** without Authenticode, SmartScreen can still warn on a new publisher. Signing (see SIGNING.md) is the real fix later; these steps only lower heuristic risk.
 
@@ -49,3 +68,4 @@ Not installed (BYOK): Firecrawl / OpenRouter API keys.
 | `%APPDATA%\LetMeWork\resume.md` | Text for AI |
 | `%APPDATA%\LetMeWork\resume.pdf` | Original uploaded PDF (optional) |
 | `%APPDATA%\LetMeWork\data\jobs.db` | Job DB (frozen builds) |
+| `%APPDATA%\LetMeWork\settings.json` | Onboarding + `auto_update` |

@@ -23,7 +23,8 @@ def client(tmp_path, monkeypatch):
 def test_index_returns_html(client):
     res = client.get("/")
     assert res.status_code == 200
-    assert "UI" in res.text
+    assert "html" in res.text.lower()
+    assert ("UI" in res.text) or ('id="root"' in res.text) or ("Let Me Work" in res.text)
 
 
 def test_get_jobs_empty_when_no_file(client):

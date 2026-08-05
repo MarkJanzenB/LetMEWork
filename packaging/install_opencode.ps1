@@ -1,6 +1,7 @@
 # Let Me Work — install runtime deps via official channels only
 # 1) Node.js LTS (if needed)  2) OpenCode (npm / scoop / choco)
 # Docs: https://opencode.ai/docs/  https://nodejs.org/
+# Exit 0 = OpenCode available; Exit 1 = failed (Inno can retry).
 
 $ErrorActionPreference = "Continue"
 Write-Host ""
@@ -60,7 +61,6 @@ function Install-NodeLts {
         if (Test-Cmd "npm") { return $true }
     }
 
-    # Last resort: official Node MSI (may prompt UAC)
     try {
         $tmp = Join-Path $env:TEMP "node-lts.msi"
         Write-Host "Downloading Node.js LTS MSI from nodejs.org…"
@@ -91,8 +91,8 @@ function Install-OpenCode {
         npm install -g opencode-ai
         Refresh-Path
         if (Test-OpenCode) { return $true }
-        Write-Host "npm finished; open a new terminal if 'opencode' is not on PATH yet."
-        return $true  # package likely installed; PATH refresh is the usual issue
+        Write-Host "npm finished but 'opencode' not on PATH yet."
+        return $false
     }
 
     if (Test-Cmd "scoop") {
@@ -113,9 +113,11 @@ function Install-OpenCode {
 }
 
 # --- main ---
-if (Test-OpenCode) { exit 0 }
+if (Test-OpenCode) {
+    Write-Host "=== Dependency setup finished (OpenCode OK) ==="
+    exit 0
+}
 
-# Direct OpenCode via scoop/choco if npm missing but those exist
 if (-not (Test-Cmd "npm")) {
     if (Test-Cmd "scoop") {
         Write-Host "Installing OpenCode via Scoop…"
@@ -136,18 +138,18 @@ if (-not (Install-NodeLts)) {
     Write-Host "Could not install Node.js automatically."
     Write-Host "Install from https://nodejs.org then re-run:"
     Write-Host "  npm install -g opencode-ai"
-    Write-Host "Let Me Work is still installed; finish OpenCode before running the agent."
-    exit 0
+    exit 1
 }
 
 [void](Install-OpenCode)
 
 if (-not (Test-OpenCode)) {
     Write-Host ""
-    Write-Host "OpenCode may need a new terminal for PATH. Verify with: opencode --version"
+    Write-Host "OpenCode install failed or PATH not updated."
     Write-Host "Manual fix: npm install -g opencode-ai"
     Write-Host "Docs: https://opencode.ai/docs/"
+    exit 1
 }
 
-Write-Host "=== Dependency setup finished ==="
+Write-Host "=== Dependency setup finished (OpenCode OK) ==="
 exit 0

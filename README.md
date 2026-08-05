@@ -24,9 +24,10 @@ This fork extends the original with:
 - **Batched job analysis** — batches of 30 for smaller free-model contexts
 - **Live streaming output** — SSE logs, heartbeats, stall detection
 - **Inlined prompt context** — resume/jobs injected so models need fewer file tools
-- **Mecha UI** — single-file dashboard (`ui/index.html`)
+- **Mecha UI** — React SPA (`frontend/`) served by FastAPI; legacy `ui/index.html` fallback
 - **Work arrangement + score filters**, bulk apply, on-demand cover letters
 - **SQLite** — `data/jobs.db` with run history
+- **Opt-in auto-update** — GitHub Release `latest.json` feed (default: notify only)
 
 All original credits and the MIT license apply. Please also support the original creator:
 
@@ -57,10 +58,10 @@ Run the dashboard (`python server.py` → http://127.0.0.1:8000) or headless (`p
 
 ## Stack
 
-- **Python + FastAPI** — pipeline and API
-- **[Firecrawl](https://firecrawl.dev)** — search and structured scrape
+- **Python + FastAPI** — pipeline and API; serves React `frontend/dist` in prod
+- **[Firecrawl](https://firecrawl.dev)** — search and structured scrape (primary + optional backup key)
 - **[OpenCode](https://opencode.ai)** — AI for profile, scoring, cover letters (`prompts/`)
-- **Vanilla JS** — zero-build UI
+- **React + Vite + TypeScript** — dashboard (`frontend/`); Vite proxies `/api` in dev
 - Free models preferred when healthy; optional OpenRouter key for more models
 
 ## Setup

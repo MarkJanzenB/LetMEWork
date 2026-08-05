@@ -32,7 +32,8 @@ Use this when transplanting the **workflow**, not the job-hunting domain.
 
 | Mode | Start | What happens |
 |---|---|---|
-| Dashboard | `python server.py` | Bootstrap → SQLite init → serve UI on `127.0.0.1:8000` |
+| Dashboard | `python server.py` | Bootstrap → SQLite init → serve React (or legacy UI) on `127.0.0.1:8000` |
+| UI dev | `cd frontend && npm run dev` | Vite on `:5173`, proxies `/api` → `:8000` |
 | Headless | `python agent.py` | Bootstrap → validate → run full pipeline once |
 | Packaged | frozen EXE | Same as server; writable state under AppData |
 
