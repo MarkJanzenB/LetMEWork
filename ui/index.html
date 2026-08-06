@@ -1575,17 +1575,26 @@
 
       <div class="wizard-step" data-step="1">
         <label class="form-label" for="wiz-firecrawl">Firecrawl API key (required)</label>
-        <input id="wiz-firecrawl" class="form-input" type="password" autocomplete="off" placeholder="fc-…" />
+        <input id="wiz-firecrawl" class="form-input" type="password" autocomplete="off" placeholder="Not configured" />
         <p class="form-hint">
           Used to scrape job listings.
           <a id="wiz-fc-link" href="https://www.firecrawl.dev/app/api-keys" target="_blank" rel="noopener">Get a key →</a>
           Sign up → API Keys → Create → paste here.
         </p>
-        <label class="form-label" for="wiz-openrouter">OpenRouter API key (optional)</label>
-        <input id="wiz-openrouter" class="form-input" type="password" autocomplete="off" placeholder="sk-or-…" />
+        <p class="form-label" style="margin-top:var(--sp-4)">Model providers <span style="font-weight:400;color:var(--mecha-silver)">(optional)</span></p>
+        <p class="form-hint" style="margin-top:0">
+          Local Ollama needs no key (run <code>ollama serve</code>). Cloud / OpenRouter keys unlock more models; OpenCode free models work without these.
+        </p>
+        <label class="form-label" for="wiz-openrouter">OpenRouter API key</label>
+        <input id="wiz-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
         <p class="form-hint">
-          Optional paid models. Leave blank to use free OpenCode / local models.
-          <a id="wiz-or-link" href="https://openrouter.ai/keys" target="_blank" rel="noopener">Get a key →</a>
+          <a id="wiz-or-link" href="https://openrouter.ai/keys" target="_blank" rel="noopener">Get OpenRouter key →</a>
+        </p>
+        <label class="form-label" for="wiz-ollama">Ollama Cloud API key</label>
+        <input id="wiz-ollama" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
+        <p class="form-hint">
+          For Ollama cloud models (<code>:cloud</code> / ollama.com). Local models still work without this.
+          <a id="wiz-ol-link" href="https://ollama.com/settings/keys" target="_blank" rel="noopener">Get Ollama key →</a>
         </p>
         <span id="wiz-oc-status" class="status-pill">Checking OpenCode…</span>
       </div>
@@ -1636,13 +1645,24 @@
         <br><span id="settings-keys-path" style="font-family:var(--font-mono);font-size:var(--text-2xs)"></span>
       </div>
       <label class="form-label" for="set-firecrawl">Firecrawl API key</label>
-      <input id="set-firecrawl" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
+      <input id="set-firecrawl" class="form-input" type="password" autocomplete="off" placeholder="Not configured" />
       <p class="form-hint"><a href="https://www.firecrawl.dev/app/api-keys" target="_blank" rel="noopener">How to get a Firecrawl key</a></p>
       <label class="form-label" for="set-firecrawl-backup">Backup Firecrawl key (optional)</label>
-      <input id="set-firecrawl-backup" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
+      <input id="set-firecrawl-backup" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
       <p class="form-hint">Used automatically if the primary key hits quota / payment limits (e.g. student plan as backup).</p>
-      <label class="form-label" for="set-openrouter">OpenRouter API key (optional)</label>
-      <input id="set-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Leave blank to keep current" />
+      <p class="form-label" style="margin-top:var(--sp-4)">Model providers <span style="font-weight:400;color:var(--mecha-silver)">(optional)</span></p>
+      <p class="form-hint" style="margin-top:0">
+        Configure AI backends beyond OpenCode’s free list. Local Ollama needs no key.
+      </p>
+      <label class="form-label" for="set-openrouter">OpenRouter API key</label>
+      <input id="set-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
+      <p class="form-hint"><a href="https://openrouter.ai/keys" target="_blank" rel="noopener">How to get an OpenRouter key</a></p>
+      <label class="form-label" for="set-ollama">Ollama Cloud API key</label>
+      <input id="set-ollama" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
+      <p class="form-hint">
+        For cloud models on ollama.com (local <code>ollama serve</code> still works without a key).
+        <a href="https://ollama.com/settings/keys" target="_blank" rel="noopener">How to get an Ollama key</a>
+      </p>
       <label class="form-label" for="set-resume">Resume</label>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:var(--sp-2);align-items:center;">
         <label class="btn btn-secondary--inactive" style="cursor:pointer;margin:0;">
@@ -1699,6 +1719,8 @@
         </button>
       </div>
     </header>
+
+    <div id="setup-warn-banner" class="banner banner-error" hidden role="status"></div>
 
     <!-- Progress Pipeline -->
     <div id="progress-section" class="pipeline" style="display:none;" aria-live="polite">
@@ -3286,7 +3308,27 @@
       setupStatus = await res.json();
       const badge = document.getElementById('beta-badge');
       if (badge && setupStatus.version) badge.textContent = setupStatus.version;
+      updateSetupWarnBanner(setupStatus);
       return setupStatus;
+    }
+
+    function updateSetupWarnBanner(st) {
+      const el = document.getElementById('setup-warn-banner');
+      if (!el || !st) return;
+      const parts = [];
+      if (!st.has_firecrawl) {
+        parts.push('No Firecrawl API key configured — add one in Settings before scraping.');
+      }
+      if (!st.has_resume) {
+        parts.push('No resume found — paste or upload one in Settings before running.');
+      }
+      if (!parts.length) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      el.textContent = parts.join(' ');
+      el.hidden = false;
     }
 
     function showWizard() {
@@ -3320,11 +3362,21 @@
         oc.textContent = 'OpenCode missing — reinstall or install from opencode.ai';
         oc.className = 'status-pill bad';
       }
-      if (setupStatus.has_firecrawl && setupStatus.firecrawl_masked) {
-        document.getElementById('wiz-firecrawl').placeholder = setupStatus.firecrawl_masked + ' (saved)';
+      document.getElementById('wiz-firecrawl').placeholder = setupStatus.has_firecrawl
+        ? (setupStatus.firecrawl_masked || '••••') + ' (saved — leave blank to keep)'
+        : 'Not configured';
+      document.getElementById('wiz-openrouter').placeholder = setupStatus.has_openrouter
+        ? (setupStatus.openrouter_masked || '••••') + ' (saved — leave blank to keep)'
+        : 'Not configured (optional)';
+      const wizOl = document.getElementById('wiz-ollama');
+      if (wizOl) {
+        wizOl.placeholder = setupStatus.has_ollama_key
+          ? (setupStatus.ollama_masked || '••••') + ' (saved — leave blank to keep)'
+          : 'Not configured (optional)';
       }
-      if (setupStatus.has_openrouter && setupStatus.openrouter_masked) {
-        document.getElementById('wiz-openrouter').placeholder = setupStatus.openrouter_masked + ' (saved)';
+      if (setupStatus.ollama_keys_url) {
+        const olLink = document.getElementById('wiz-ol-link');
+        if (olLink) olLink.href = setupStatus.ollama_keys_url;
       }
       const wizPdf = document.getElementById('wiz-pdf-status');
       if (wizPdf) {
@@ -3368,9 +3420,11 @@
         if (wizardStep === 1) {
           const fc = document.getElementById('wiz-firecrawl').value.trim();
           const ork = document.getElementById('wiz-openrouter').value.trim();
+          const olk = (document.getElementById('wiz-ollama')?.value || '').trim();
           const body = {};
           if (fc) body.firecrawl_key = fc;
           if (ork) body.openrouter_key = ork;
+          if (olk) body.ollama_key = olk;
           if (Object.keys(body).length) {
             const res = await fetch('/api/setup/keys', {
               method: 'POST',
@@ -3473,15 +3527,22 @@
         document.getElementById('set-firecrawl').value = '';
         document.getElementById('set-firecrawl-backup').value = '';
         document.getElementById('set-openrouter').value = '';
+        const setOl = document.getElementById('set-ollama');
+        if (setOl) setOl.value = '';
         document.getElementById('set-firecrawl').placeholder = setupStatus.has_firecrawl
-          ? (setupStatus.firecrawl_masked || 'saved') + ' (saved — leave blank to keep)'
-          : 'fc-…';
+          ? (setupStatus.firecrawl_masked || '••••') + ' (saved — leave blank to keep)'
+          : 'Not configured';
         document.getElementById('set-firecrawl-backup').placeholder = setupStatus.has_firecrawl_backup
-          ? setupStatus.firecrawl_backup_masked + ' (saved — leave blank to keep)'
-          : 'fc-… (optional backup)';
+          ? (setupStatus.firecrawl_backup_masked || '••••') + ' (saved — leave blank to keep)'
+          : 'Not configured (optional)';
         document.getElementById('set-openrouter').placeholder = setupStatus.has_openrouter
-          ? setupStatus.openrouter_masked + ' (saved — leave blank to keep)'
-          : 'sk-or-… (optional)';
+          ? (setupStatus.openrouter_masked || '••••') + ' (saved — leave blank to keep)'
+          : 'Not configured (optional)';
+        if (setOl) {
+          setOl.placeholder = setupStatus.has_ollama_key
+            ? (setupStatus.ollama_masked || '••••') + ' (saved — leave blank to keep)'
+            : 'Not configured (optional)';
+        }
         const oc = document.getElementById('settings-oc');
         oc.textContent = setupStatus.opencode_found
           ? 'OpenCode: ' + setupStatus.opencode_path
@@ -3541,10 +3602,12 @@
         const fc = document.getElementById('set-firecrawl').value.trim();
         const fcBackup = document.getElementById('set-firecrawl-backup').value.trim();
         const ork = document.getElementById('set-openrouter').value.trim();
+        const olk = (document.getElementById('set-ollama')?.value || '').trim();
         const body = {};
         if (fc) body.firecrawl_key = fc;
         if (fcBackup) body.firecrawl_backup_key = fcBackup;
         if (ork) body.openrouter_key = ork;
+        if (olk) body.ollama_key = olk;
         if (Object.keys(body).length) {
           const res = await fetch('/api/setup/keys', {
             method: 'POST',

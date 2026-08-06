@@ -321,9 +321,11 @@ def test_run_opencode_raises_when_cli_missing(tmp_path, monkeypatch):
 
 def test_run_opencode_uses_resolved_executable(tmp_path, monkeypatch):
     import agent
+    import user_data
     from io import BytesIO
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
     (tmp_path / "prompt.md").write_text("hello")
     fake_stdout = BytesIO(b"ok\n")
     fake_stderr = BytesIO(b"")
@@ -335,7 +337,9 @@ def test_run_opencode_uses_resolved_executable(tmp_path, monkeypatch):
         poll=lambda: 0,
     )
     with (
-        patch.object(agent.shutil, "which", return_value="/usr/local/bin/opencode"),
+        patch("user_data.find_opencode", return_value="/usr/local/bin/opencode"),
+        patch("user_data.opencode_argv", side_effect=lambda *a: ["/usr/local/bin/opencode", *a]),
+        patch("user_data.opencode_run_env", return_value={"OPENCODE_CONFIG": str(tmp_path / "opencode.json")}),
         patch.object(agent.subprocess, "Popen", return_value=fake_proc) as mock_popen,
         patch.object(agent, "_init_models"),
         patch.object(agent, "_healthy_models", ["fake/model"]),
@@ -343,6 +347,8 @@ def test_run_opencode_uses_resolved_executable(tmp_path, monkeypatch):
         out = agent.run_opencode("prompt.md")
     assert out == "ok"
     assert mock_popen.call_args[0][0][0] == "/usr/local/bin/opencode"
+    assert mock_popen.call_args.kwargs.get("cwd") == str(tmp_path)
+    assert mock_popen.call_args.kwargs.get("env", {}).get("OPENCODE_CONFIG")
 
 
 def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):

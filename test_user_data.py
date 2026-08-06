@@ -66,7 +66,91 @@ def test_firecrawl_failover_swaps_on_quota(monkeypatch):
     assert app._app.key == "backup"
 
 
+def test_ensure_opencode_config_seeds_job_agent(tmp_path, monkeypatch):
+    import json
+
+    import user_data
+
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
+    path = user_data.ensure_opencode_config()
+    assert path == tmp_path / "opencode.json"
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    assert "job-agent" in cfg["agent"]
+    # Re-run keeps existing provider block if present
+    cfg["provider"] = {"ollama": {"models": {"x": {"name": "x"}}}}
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    user_data.ensure_opencode_config()
+    again = json.loads(path.read_text(encoding="utf-8"))
+    assert again["provider"]["ollama"]["models"]["x"]["name"] == "x"
+    assert "job-agent" in again["agent"]
+
+
+def test_opencode_argv_wraps_cmd(monkeypatch, tmp_path):
+    import user_data
+
+    cmd = tmp_path / "opencode.cmd"
+    cmd.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr(user_data, "find_opencode", lambda: str(cmd))
+    argv = user_data.opencode_argv("run", "hi")
+    assert argv[:3] == ["cmd.exe", "/c", str(cmd)]
+    assert argv[3:] == ["run", "hi"]
+
+
+def test_probe_skips_openrouter_without_key(tmp_path, monkeypatch):
+    import io
+
+    import model_prober
+
+    monkeypatch.setattr(model_prober.user_data, "apply_env_to_process", lambda: None)
+    monkeypatch.setattr(model_prober.user_data, "read_env_keys", lambda: {})
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(model_prober, "probe_ollama_models", lambda: [])
+    monkeypatch.setattr(model_prober.user_data, "find_opencode", lambda: None)
+    buf = io.StringIO()
+    monkeypatch.setattr("sys.stdout", buf)
+    healthy = model_prober.probe_all_models()
+    assert healthy == []
+    assert "Skipping OpenRouter — not configured" in buf.getvalue()
+
+
+def test_discover_openrouter_prefers_free(monkeypatch):
+    import io
+    import json
+
+    import model_prober
+
+    payload = {
+        "data": [
+            {"id": "vendor/paid-model", "pricing": {"prompt": "1", "completion": "1"}},
+            {"id": "vendor/free-a:free", "pricing": {"prompt": "0", "completion": "0"}},
+            {"id": "~alias/skip", "pricing": {"prompt": "0", "completion": "0"}},
+        ]
+    }
+
+    class CM:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps(payload).encode()
+
+    monkeypatch.setattr(model_prober, "_openrouter_api_key", lambda: "sk-test")
+    monkeypatch.setattr(
+        model_prober.urllib.request, "urlopen", lambda *a, **k: CM()
+    )
+    monkeypatch.setattr("sys.stdout", io.StringIO())
+    ids = model_prober.discover_openrouter_models()
+    assert ids[0] == "openrouter/vendor/free-a:free"
+    assert "openrouter/vendor/paid-model" in ids
+    assert all(not x.startswith("openrouter/~") for x in ids)
+
+
 def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
+
+
     import io
     import json
 

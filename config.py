@@ -144,10 +144,25 @@ def sources_payload() -> dict:
     }
 
 
+def _patch_firecrawl_version_lookup() -> None:
+    """Frozen builds: firecrawl reads __init__.py from disk for version."""
+    try:
+        import firecrawl
+        from firecrawl.v2.utils import get_version as gv
+
+        ver = getattr(firecrawl, "__version__", None) or "0.0.0"
+        gv.get_version = lambda v=ver: v
+    except Exception:
+        pass
+
+
 def bootstrap() -> None:
     """Load local keys and ensure writable dirs exist. Call at process start."""
     global RESUME_FILE, CONFIG_FILE, DB_PATH
+    user_data.refresh_path_from_registry()
     user_data.apply_env_to_process()
+    user_data.ensure_opencode_config()
+    _patch_firecrawl_version_lookup()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH = DATA_DIR / "jobs.db"

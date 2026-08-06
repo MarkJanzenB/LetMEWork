@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "job-agent": {
+      "description": "Job hunting agent — reads resume and jobs files, outputs JSON analysis and cover letters",
+      "mode": "primary",
+      "permission": {
+        "read": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "task": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "todowrite": "deny",
+        "skill": "deny"
+      }
+    }
+  }
+}

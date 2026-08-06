@@ -36,7 +36,7 @@ Post-install script (`install_opencode.ps1`):
 4. Then `npm install -g opencode-ai`  
 5. Exit **1** if OpenCode still missing (Inno offers Retry)
 
-Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + vanilla UI + Firecrawl client + pypdf, etc.
+Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + vanilla UI + Firecrawl client (source + rthook so `__init__.py` exists under `_MEI`) + `opencode.json` template + pypdf, etc.
 
 Not installed (BYOK): Firecrawl / OpenRouter API keys.
 
@@ -65,3 +65,4 @@ Not installed (BYOK): Firecrawl / OpenRouter API keys.
 | `%APPDATA%\LetMeWork\resume.pdf` | Original uploaded PDF (optional) |
 | `%APPDATA%\LetMeWork\data\jobs.db` | Job DB (frozen builds) |
 | `%APPDATA%\LetMeWork\settings.json` | Onboarding + `auto_update` |
+| `%APPDATA%\LetMeWork\opencode.json` | OpenCode `job-agent` + synced providers (seeded from `packaging/opencode.json`) |

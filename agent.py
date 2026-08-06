@@ -465,8 +465,7 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
         prompt = prompt + "\n" + context
     import user_data
 
-    opencode_exe = user_data.find_opencode()
-    if not opencode_exe:
+    if not user_data.find_opencode():
         raise RuntimeError(
             "opencode CLI not found — install from https://opencode.ai "
             "or reinstall Let Me Work after installing OpenCode on PATH."
@@ -479,6 +478,8 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
     selected_model = model or _next_model()
     last_error = None
     total_attempts = 0
+    oc_env = user_data.opencode_run_env()
+    oc_cwd = str(user_data.user_data_dir())
 
     while total_attempts < config.MAX_OPENCODE_ATTEMPTS:
         total_attempts += 1
@@ -489,19 +490,20 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
 
         print(f"  [Attempt {total_attempts}/{config.MAX_OPENCODE_ATTEMPTS}] Using model: {selected_model}")
         global _current_opencode_proc
+        argv = user_data.opencode_argv(
+            "run", prompt, "--agent", "job-agent", "--model", selected_model
+        )
+        if not argv:
+            raise RuntimeError(
+                "opencode CLI not found — install from https://opencode.ai "
+                "or reinstall Let Me Work after installing OpenCode on PATH."
+            )
         proc = subprocess.Popen(
-            [
-                opencode_exe,
-                "run",
-                prompt,
-                "--agent",
-                "job-agent",
-                "--model",
-                selected_model,
-            ],
+            argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=".",
+            cwd=oc_cwd,
+            env=oc_env,
         )
         _current_opencode_proc = proc
 

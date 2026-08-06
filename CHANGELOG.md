@@ -10,8 +10,17 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ## [Unreleased]
 
 ### Added
+- Ollama Cloud API key (`OLLAMA_API_KEY`) in onboarding/Settings under **Model providers** (alongside OpenRouter); local `ollama serve` still needs no key
 ### Changed
 ### Fixed
+- Packaged EXE: bundle firecrawl package data so version lookup no longer fails under `_MEI`
+- Packaged EXE: seed `%APPDATA%\LetMeWork\opencode.json` with `job-agent`; run OpenCode with `OPENCODE_CONFIG` + AppData cwd (fixes agent-not-found on launch)
+- Refresh User/Machine PATH + wrap `opencode.cmd` via `cmd.exe` so GUI-launched EXE finds npm OpenCode
+- Clearer console warning when OpenCode CLI is missing vs models merely unhealthy
+- Model discovery: no hardcoded OpenRouter/OpenCode menus — list from Ollama / OpenRouter API / `opencode models`; skip OpenRouter when not configured
+- Settings / onboarding: show **Not configured** instead of fake `fc-…` / `sk-or-…` placeholders when keys are empty
+- Dashboard warns when Firecrawl key or resume is missing (even after onboarding)
+
 ### Removed
 
 ## [0.1.0-beta.3] — 2026-08-06

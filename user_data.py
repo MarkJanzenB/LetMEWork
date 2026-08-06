@@ -217,11 +217,146 @@ def mask_key(value: str | None) -> str:
     return value[:4] + "••••" + value[-4:]
 
 
+def refresh_path_from_registry() -> None:
+    """Merge User/Machine PATH into this process (GUI launches often miss npm)."""
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+    except ImportError:
+        return
+    parts: list[str] = []
+    for root, subkey in (
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ),
+    ):
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                val, _ = winreg.QueryValueEx(key, "Path")
+        except OSError:
+            continue
+        for p in str(val).split(";"):
+            t = p.strip()
+            if t and t not in parts:
+                parts.append(t)
+    appdata = os.environ.get("APPDATA", "").strip()
+    if appdata:
+        npm = str(Path(appdata) / "npm")
+        if Path(npm).is_dir() and npm not in parts:
+            parts.append(npm)
+    for p in os.environ.get("PATH", "").split(";"):
+        t = p.strip()
+        if t and t not in parts:
+            parts.append(t)
+    if parts:
+        os.environ["PATH"] = ";".join(parts)
+
+
+def _opencode_template_path() -> Path | None:
+    """Shipping job-agent template (packaging/ or frozen MEIPASS — not personal repo file)."""
+    candidates = [Path(__file__).resolve().parent / "packaging" / "opencode.json"]
+    if is_frozen():
+        candidates.insert(0, resource_dir() / "opencode.json")
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+_JOB_AGENT_FALLBACK = {
+    "description": (
+        "Job hunting agent — reads resume and jobs files, "
+        "outputs JSON analysis and cover letters"
+    ),
+    "mode": "primary",
+    "permission": {
+        "read": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "task": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "todowrite": "deny",
+        "skill": "deny",
+    },
+}
+
+
+def opencode_config_path() -> Path:
+    """Writable opencode.json OpenCode loads (AppData when packaged)."""
+    return user_data_dir() / "opencode.json"
+
+
+def ensure_opencode_config() -> Path:
+    """Seed/merge job-agent into AppData opencode.json; return its path."""
+    dest = opencode_config_path()
+    template = _opencode_template_path()
+    tpl: dict = {}
+    if template is not None:
+        try:
+            tpl = json.loads(template.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            tpl = {}
+
+    cfg: dict = {}
+    if dest.is_file():
+        try:
+            cfg = json.loads(dest.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+    elif tpl:
+        cfg = dict(tpl)
+    else:
+        cfg = {"$schema": "https://opencode.ai/config.json", "agent": {}}
+
+    agent = cfg.setdefault("agent", {})
+    if not isinstance(agent, dict):
+        agent = {}
+        cfg["agent"] = agent
+    if "job-agent" not in agent:
+        job = None
+        if isinstance(tpl.get("agent"), dict):
+            job = tpl["agent"].get("job-agent")
+        agent["job-agent"] = job if isinstance(job, dict) else dict(_JOB_AGENT_FALLBACK)
+
+    if "$schema" not in cfg and isinstance(tpl.get("$schema"), str):
+        cfg["$schema"] = tpl["$schema"]
+
+    dest.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return dest
+
+
+def opencode_run_env() -> dict[str, str]:
+    """Env for `opencode run`: refreshed PATH + OPENCODE_CONFIG → job-agent."""
+    refresh_path_from_registry()
+    apply_env_to_process()
+    env = os.environ.copy()
+    env["OPENCODE_CONFIG"] = str(ensure_opencode_config())
+    return env
+
+
+def opencode_argv(*args: str) -> list[str] | None:
+    """Build argv for OpenCode. Prefer .exe; wrap .cmd/.bat via cmd.exe."""
+    exe = find_opencode()
+    if not exe:
+        return None
+    lower = exe.lower()
+    if lower.endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", exe, *args]
+    return [exe, *args]
+
+
 def find_opencode() -> str | None:
     """Resolve OpenCode binary via env, install dir, PATH, then per-user npm/scoop.
 
     Uses %APPDATA% / %LOCALAPPDATA% / home — never a hardcoded username.
     """
+    refresh_path_from_registry()
     forced = os.environ.get("OPENCODE_PATH", "").strip()
     if forced and Path(forced).exists():
         return str(Path(forced).resolve())
@@ -237,6 +372,7 @@ def find_opencode() -> str | None:
     if which:
         return which
 
+    # Prefer real binaries over .cmd shims (CreateProcess cannot run .cmd alone)
     candidates: list[Path] = []
     appdata = os.environ.get("APPDATA", "").strip()
     local = os.environ.get("LOCALAPPDATA", "").strip()

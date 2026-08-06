@@ -9,7 +9,8 @@ resume.md
 data/
 output/
 nul
-opencode.json
+/opencode.json
+!packaging/opencode.json
 
 # Python
 __pycache__/
