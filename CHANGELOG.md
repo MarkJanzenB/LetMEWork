@@ -14,6 +14,15 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ### Fixed
 ### Removed
 
+## [0.1.0-beta.3] — 2026-08-06
+
+### Changed
+- Primary dashboard is vanilla `ui/index.html` again (React SPA not served; installer bundles `ui/` only)
+
+### Added
+- Clearer onboarding/Settings hints: scanned / image-only PDFs not supported yet
+- Modal + error toast when PDF upload finds no selectable text
+
 ## [0.1.0-beta.2] — 2026-08-06
 
 Coherent public beta: React-era app tagged and published under **LetMEWork**.
@@ -48,6 +57,7 @@ First public beta of the Let Me Work (OpenCode) edition.
 - Core scrape-and-score workflow: [Kurt Chan / AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper)
 - Let Me Work edition: [Mark Janzen Bandola](https://github.com/MarkJanzenB)
 
-[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.2...HEAD
+[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.3...HEAD
+[0.1.0-beta.3]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.1

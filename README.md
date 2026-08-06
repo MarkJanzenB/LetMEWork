@@ -65,14 +65,14 @@ Product and engineering layers built on that spine:
 | Reliability | Health **probing** (OpenRouter / Ollama / OpenCode), batch scoring, timeouts, cancel |
 | Data | **SQLite** jobs DB, run history, soft-delete / restore, status funnel |
 | Product UX | First-run **onboarding** (keys → resume → boards), Settings, confirmations |
-| UI | **React + Vite** SPA (FastAPI serves `frontend/dist`); legacy `ui/` fallback |
+| UI | **Vanilla `ui/index.html`** (full dashboard); `frontend/` React WIP parked |
 | Distribution | **PyInstaller + Inno Setup**, OpenCode/Node post-install with retry |
 | Updates | Opt-in **auto-update** via GitHub Release `latest.json` (default: notify only) |
 | Extras | Firecrawl primary + backup key, AppData BYOK storage, selectable job boards |
 
 Claim line you can use publicly:
 
-> **Let Me Work** is my OpenCode / Windows edition of Kurt Chan’s AI Job Hunt Agent. Kurt designed the core scrape-and-score workflow; I built the OpenCode runtime, SQLite, onboarding, React dashboard, and installer.
+> **Let Me Work** is my OpenCode / Windows edition of Kurt Chan’s AI Job Hunt Agent. Kurt designed the core scrape-and-score workflow; I built the OpenCode runtime, SQLite, onboarding, dashboard/packaging, and installer.
 
 MIT license preserved — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
@@ -112,10 +112,10 @@ SQLite data/jobs.db (+ optional output/*.json)
 
 ## Stack
 
-- **Python + FastAPI** — pipeline, REST, SSE; serves React in production  
+- **Python + FastAPI** — pipeline, REST, SSE; serves `ui/index.html`  
 - **[Firecrawl](https://firecrawl.dev)** — search + structured scrape  
 - **[OpenCode](https://opencode.ai)** — profile, scoring, cover letters (`prompts/`)  
-- **React + Vite + TypeScript** — dashboard (`frontend/`)  
+- **Vanilla HTML/JS dashboard** — bulk actions, filters, live run logs (`ui/`)  
 - Free models preferred when healthy; optional OpenRouter; Ollama when local daemon is up  
 
 ---
@@ -168,8 +168,7 @@ opencode providers login      # configure cloud providers as needed
 # Resume (gitignored) — or upload via UI after launch
 # create resume.md in the project root
 
-python server.py              # http://127.0.0.1:8000
-# UI hot-reload (optional): cd frontend && npm install && npm run dev  → :5173
+python server.py              # http://127.0.0.1:8000  (dashboard: ui/index.html)
 ```
 
 Headless once: `python agent.py`  
@@ -198,11 +197,11 @@ Architecture deep-dive: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ```
 agent.py              # pipeline (OpenCode rotation, streaming)
-server.py             # FastAPI + SSE + static React
+server.py             # FastAPI + SSE + serves ui/index.html
 db.py / user_data.py  # SQLite + AppData keys / onboarding
 model_prober.py       # model health cache
-frontend/             # React SPA (source + dist)
-ui/                   # legacy HTML fallback
+ui/                   # primary dashboard (vanilla)
+frontend/             # React SPA experiment (not served by default)
 prompts/              # AI step prompts
 packaging/            # PyInstaller + Inno Setup
 ```
@@ -214,7 +213,7 @@ packaging/            # PyInstaller + Inno Setup
 | Person | Credit |
 |--------|--------|
 | **[Kurt Chan](https://github.com/Kurt-Chan)** ([Kurt De Austria](https://ko-fi.com/kurtdeaustria)) | **Core workflow creator** — original [AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper): FastAPI host, Firecrawl acquisition, prompt/CLI pipeline, dashboard idea |
-| **[Mark Janzen Bandola](https://github.com/MarkJanzenB)** | **Let Me Work maintainer** — OpenCode edition, probing/batching/SSE, SQLite, onboarding, React UI, Windows packaging, update feed |
+| **[Mark Janzen Bandola](https://github.com/MarkJanzenB)** | **Let Me Work maintainer** — OpenCode edition, probing/batching/SSE, SQLite, onboarding, dashboard UI, Windows packaging, update feed |
 
 If this fork helped you, star this repo **and** consider supporting Kurt on [Ko-fi](https://ko-fi.com/kurtdeaustria).
 

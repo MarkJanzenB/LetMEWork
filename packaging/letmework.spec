@@ -12,7 +12,6 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "ui"), "ui"),
-        (str(ROOT / "frontend" / "dist"), "frontend/dist"),
         (str(ROOT / "prompts"), "prompts"),
     ],
     hiddenimports=[

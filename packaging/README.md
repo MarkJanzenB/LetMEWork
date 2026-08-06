@@ -7,18 +7,12 @@ Core scrape-and-score workflow: Kurt Chan’s AI Job Hunt Agent. This packaging 
 ## Build order
 
 ```bat
-:: 1) React UI
-cd frontend
-npm ci
-npm run build
-cd ..
-
-:: 2) Frozen EXE (bundles frontend/dist + prompts)
+:: 1) Frozen EXE (bundles ui/ + prompts)
 pip install -r requirements.txt
 pip install pyinstaller
 pyinstaller packaging/letmework.spec
 
-:: 3) Compile packaging/LetMeWork.iss with Inno Setup 6
+:: 2) Compile packaging/LetMeWork.iss with Inno Setup 6
 ::    → dist\installer\LetMeWork-Setup-<ver>.exe
 :: Post-install runs packaging/install_opencode.ps1 (retry on failure)
 ```
@@ -42,7 +36,7 @@ Post-install script (`install_opencode.ps1`):
 4. Then `npm install -g opencode-ai`  
 5. Exit **1** if OpenCode still missing (Inno offers Retry)
 
-Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + React SPA + Firecrawl client + pypdf, etc.
+Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + vanilla UI + Firecrawl client + pypdf, etc.
 
 Not installed (BYOK): Firecrawl / OpenRouter API keys.
 

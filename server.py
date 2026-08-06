@@ -13,7 +13,6 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -40,36 +39,14 @@ run_lock = threading.Lock()
 
 
 def _ui_index() -> Path:
-    """Prefer React build; fall back to vanilla ui/index.html."""
+    """Primary UI is vanilla ui/index.html (full feature dashboard)."""
     if user_data.is_frozen():
-        for path in (
-            config.BASE_DIR / "frontend" / "dist" / "index.html",
-            config.BASE_DIR / "ui" / "index.html",
-        ):
-            if path.is_file():
-                return path
-        return config.BASE_DIR / "ui" / "index.html"
-    for path in (Path("frontend/dist/index.html"), Path("ui/index.html")):
-        if path.is_file():
-            return path
-    # Dev: allow running with cwd ≠ repo root
-    for path in (
-        config.BASE_DIR / "frontend" / "dist" / "index.html",
-        config.BASE_DIR / "ui" / "index.html",
-    ):
+        path = config.BASE_DIR / "ui" / "index.html"
+        return path if path.is_file() else Path("ui/index.html")
+    for path in (Path("ui/index.html"), config.BASE_DIR / "ui" / "index.html"):
         if path.is_file():
             return path
     return Path("ui/index.html")
-
-
-def _frontend_dist() -> Path | None:
-    if user_data.is_frozen():
-        path = config.BASE_DIR / "frontend" / "dist"
-        return path if path.is_dir() and (path / "index.html").is_file() else None
-    for path in (Path("frontend/dist"), config.BASE_DIR / "frontend" / "dist"):
-        if path.is_dir() and (path / "index.html").is_file():
-            return path
-    return None
 
 
 @app.get("/")
@@ -690,23 +667,6 @@ async def cancel_run():
 
     request_pipeline_cancel()
     return JSONResponse({"ok": True, "cancelled": True})
-
-
-# React SPA assets (prod). Dev uses Vite proxy → this API.
-_dist = _frontend_dist()
-if _dist is not None:
-    _assets = _dist / "assets"
-    if _assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
-
-    @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
-        if not full_path or full_path.startswith("api/") or full_path == "api":
-            raise HTTPException(status_code=404, detail="Not found")
-        candidate = _dist / full_path
-        if candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(_dist / "index.html")
 
 
 if __name__ == "__main__":

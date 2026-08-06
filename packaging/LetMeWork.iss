@@ -7,7 +7,7 @@
 ; Signing is optional later — see SIGNING.md. SmartScreen: More info → Run anyway.
 
 #define MyAppName "Let Me Work"
-#define MyAppVersion "0.1.0-beta.2"
+#define MyAppVersion "0.1.0-beta.3"
 #define MyAppPublisher "Mark Janzen Bandola"
 #define MyAppURL "https://github.com/MarkJanzenB/LetMEWork"
 #define MyAppExeName "LetMeWork.exe"
@@ -31,7 +31,7 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 InfoBeforeFile=INFO_BEFORE.txt
 SetupLogging=yes
-VersionInfoVersion=0.1.0.2
+VersionInfoVersion=0.1.0.3
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} — local AI job finder
 VersionInfoProductName={#MyAppName}

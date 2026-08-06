@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "LetMeWork"
-APP_VERSION = "0.1.0-beta.2"
+APP_VERSION = "0.1.0-beta.3"
 FIRECRAWL_KEYS_URL = "https://www.firecrawl.dev/app/api-keys"
 OPENROUTER_KEYS_URL = "https://openrouter.ai/keys"
 OPENCODE_INSTALL_URL = "https://opencode.ai"
@@ -79,8 +79,8 @@ def extract_pdf_text(data: bytes) -> str:
     text = "\n".join(parts).strip()
     if not text:
         raise ValueError(
-            "No text found in PDF. Export from Word as PDF with selectable text "
-            "(scanned image PDFs are not supported yet)."
+            "No text found in this PDF. Scanned / image-only resumes are not supported yet (no OCR). "
+            "Export from Word or Google Docs as a PDF with selectable text, or paste the resume into the text box."
         )
     return text
 

@@ -1577,7 +1577,8 @@
         <textarea id="wiz-resume" class="form-textarea" placeholder="Paste markdown, or upload a PDF (Word→PDF)…"></textarea>
         <p class="form-hint">
           PDF is kept on this PC; extracted text is what the AI uses (editable below).
-          No OCR — use a text PDF from Word.
+          Use a <strong>text PDF</strong> (e.g. Word → Save as PDF with selectable text).
+          <strong>Scanned / image-only PDFs are not supported yet</strong> (no OCR) — paste text instead.
         </p>
       </div>
 
@@ -1627,7 +1628,10 @@
         <span id="set-pdf-status" class="form-hint" style="margin:0;"></span>
       </div>
       <textarea id="set-resume" class="form-textarea"></textarea>
-      <p class="form-hint">Edit the extracted text anytime. Saving updates resume.md (used by the AI). Original PDF stays in your AppData folder.</p>
+      <p class="form-hint">
+        Edit the extracted text anytime. Saving updates resume.md (used by the AI). Original PDF stays in your AppData folder.
+        <strong>Scanned / image-only PDFs are not supported yet</strong> — export a text PDF or paste markdown.
+      </p>
       <fieldset style="border:0;padding:0;margin:0;">
         <legend class="form-label">Job boards to scrape</legend>
         <div id="set-sources" class="source-checks"></div>
@@ -1855,6 +1859,20 @@
         </div>
         <pre id="cl-content" class="modal-content"></pre>
         <textarea id="cl-editor" class="modal-content" style="display:none; resize: vertical; min-height: 300px;"></textarea>
+      </div>
+    </div>
+
+    <!-- Simple notice modal (e.g. scanned PDF unsupported) -->
+    <div id="notice-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeNoticeModal()">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="notice-title" tabindex="-1" style="max-width:420px;">
+        <div class="modal-header">
+          <h2 id="notice-title" class="modal-title">Notice</h2>
+          <button type="button" class="modal-close" onclick="closeNoticeModal()" aria-label="Close">&times;</button>
+        </div>
+        <p id="notice-body" style="color:var(--mecha-silver);font-size:var(--text-sm);line-height:1.6;margin:0 0 var(--sp-4);white-space:pre-wrap;"></p>
+        <div class="wizard-nav" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-primary" onclick="closeNoticeModal()">Got it</button>
+        </div>
       </div>
     </div>
 
@@ -3411,15 +3429,50 @@
         fd.append('file', file);
         const res = await fetch('/api/setup/resume-pdf', { method: 'POST', body: fd });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || 'PDF upload failed');
+        let detail = data.detail || 'PDF upload failed';
+        if (Array.isArray(detail)) {
+          detail = detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+        }
+        if (!res.ok) throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
         document.getElementById(textareaId).value = data.content || '';
         status.textContent = `Saved ${data.original_name || file.name} · text ready for AI`;
         showToast('PDF saved locally; extracted text loaded for editing.');
         await fetchSetupStatus();
       } catch (e) {
         status.textContent = '';
-        showToast(e.message || 'PDF upload failed', { variant: 'error' });
+        const msg = e.message || 'PDF upload failed';
+        const scanned = /no text found|scanned|image.?only|ocr/i.test(msg);
+        if (scanned) {
+          showNoticeModal(
+            'Scanned PDF not supported yet',
+            'This PDF has no selectable text (common with phone scans or image-only exports). '
+              + 'Let Me Work cannot OCR scanned resumes yet.\n\n'
+              + 'What works:\n'
+              + '• Export from Word / Google Docs as PDF with selectable text\n'
+              + '• Or paste your resume markdown into the text box\n\n'
+              + msg,
+          );
+          showToast('Scanned / image PDF not supported — use a text PDF or paste resume.', {
+            variant: 'error',
+            duration: 8000,
+            assertive: true,
+          });
+        } else {
+          showToast(msg, { variant: 'error', duration: 6000 });
+        }
       }
+    }
+
+    function showNoticeModal(title, body) {
+      const overlay = document.getElementById('notice-modal');
+      document.getElementById('notice-title').textContent = title;
+      document.getElementById('notice-body').textContent = body;
+      overlay.style.display = 'flex';
+      overlay.querySelector('.modal-panel')?.focus();
+    }
+
+    function closeNoticeModal() {
+      document.getElementById('notice-modal').style.display = 'none';
     }
 
     async function openSettings() {
