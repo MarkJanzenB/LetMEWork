@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -31,6 +32,11 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # ponytail: cap OpenRouter / Ollama cloud probes — catalogs can be huge
 OPENROUTER_PROBE_MAX = 16
 OLLAMA_CLOUD_PROBE_MAX = 16
+OPENCODE_FREE_PROBE_MAX = 12
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# Known Zen free id without a -free suffix (still listed by `opencode models`)
+_OPENCODE_KNOWN_FREE = frozenset({"opencode/big-pickle"})
+_OPENCODE_CHEAP_HINTS = ("pickle", "nano", "flash-lite", "haiku", "mini", "flash")
 
 
 # ── Ollama via native HTTP API (local and/or ollama.com cloud key) ──
@@ -254,16 +260,41 @@ def discover_openrouter_models() -> list[str]:
 
 
 def discover_opencode_free_models() -> list[str]:
-    """OpenCode built-in free models via `opencode models opencode`."""
-    argv = user_data.opencode_argv("models", "opencode")
-    if not argv:
+    """OpenCode built-in / Zen models via `opencode models` (prefer free tier)."""
+    if not user_data.opencode_argv("models"):
         return []
     print("  Discovering OpenCode free models…", flush=True)
+
+    listed = _run_opencode_models_list("opencode")
+    if not listed:
+        # Provider filter empty — try full catalog
+        listed = _run_opencode_models_list(None)
+    if not listed:
+        print(
+            "  OpenCode model list empty (is the CLI working? try: opencode models).",
+            flush=True,
+        )
+        return []
+
+    chosen = _pick_opencode_free_candidates(listed)
+    print(
+        f"  OpenCode listed {len(listed)} model(s); "
+        f"probing up to {len(chosen)} free/cheap candidate(s)",
+        flush=True,
+    )
+    return chosen
+
+
+def _run_opencode_models_list(provider: str | None) -> list[str]:
+    args = ["models", provider] if provider else ["models"]
+    argv = user_data.opencode_argv(*args)
+    if not argv:
+        return []
     try:
         proc = subprocess.run(
             argv,
             capture_output=True,
-            timeout=60,
+            timeout=90,
             cwd=str(user_data.user_data_dir()),
             env=user_data.opencode_run_env(),
         )
@@ -271,18 +302,75 @@ def discover_opencode_free_models() -> list[str]:
         print(f"  OpenCode model list failed: {e}", flush=True)
         return []
     text = (proc.stdout or b"").decode("utf-8", errors="replace")
+    err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+    ids = _parse_opencode_model_ids(text)
+    if not ids and proc.returncode != 0:
+        print(
+            f"  OpenCode models exit {proc.returncode}"
+            + (f": {err[:240]}" if err else ""),
+            flush=True,
+        )
+    return ids
+
+
+def _parse_opencode_model_ids(text: str) -> list[str]:
+    """Extract provider/model ids from `opencode models` output (TTY or plain)."""
     out: list[str] = []
-    for line in text.splitlines():
-        mid = line.strip()
-        if not mid or mid.startswith("-") or " " in mid:
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = _ANSI_RE.sub("", raw).strip().strip("`")
+        if not line or line.startswith(("-", "#", "Models", "Provider")):
             continue
-        if not mid.startswith("opencode/"):
+        token = line.split()[0].strip(",").strip('"').strip("'")
+        if "/" not in token:
             continue
-        # free tier markers used by OpenCode Zen / builtins
-        if mid.endswith("-free") or mid.endswith(":free") or mid.endswith("/free"):
-            out.append(mid)
-    print(f"  OpenCode free: {len(out)} model(s)", flush=True)
+        # skip table junk / flags
+        if token.startswith("-") or "://" in token:
+            continue
+        if token not in seen:
+            seen.add(token)
+            out.append(token)
     return out
+
+
+def _pick_opencode_free_candidates(listed: list[str]) -> list[str]:
+    """Prefer *-free / known free; else cheap-looking ids from the live list only."""
+    oc = [m for m in listed if m.startswith("opencode/")]
+    pool = oc or listed
+
+    def is_free_tagged(mid: str) -> bool:
+        name = mid.split("/", 1)[-1].lower()
+        return (
+            mid in _OPENCODE_KNOWN_FREE
+            or name.endswith("-free")
+            or name.endswith(":free")
+            or "-free" in name
+            or name.endswith("/free")
+        )
+
+    free = [m for m in pool if is_free_tagged(m)]
+    if free:
+        return free[:OPENCODE_FREE_PROBE_MAX]
+
+    cheap = [
+        m
+        for m in pool
+        if any(h in m.split("/", 1)[-1].lower() for h in _OPENCODE_CHEAP_HINTS)
+    ]
+    if cheap:
+        print(
+            "  No *-free tags in OpenCode list — "
+            "falling back to cheap-looking ids from discovery",
+            flush=True,
+        )
+        return cheap[:OPENCODE_FREE_PROBE_MAX]
+
+    print(
+        "  No free/cheap OpenCode ids in list — "
+        "add OpenRouter, start Ollama, or check OpenCode Zen access",
+        flush=True,
+    )
+    return []
 
 
 # ── OpenCode probing (non-Ollama providers) ───────────────────
@@ -491,5 +579,12 @@ def get_healthy_models(force_probe: bool = False) -> list[str]:
             flush=True,
         )
     else:
-        print("  WARNING: No healthy models found!", flush=True)
+        print(
+            "  WARNING: No healthy models found!\n"
+            "    • Start local Ollama (`ollama serve`) and pull a model, or\n"
+            "    • Add an OpenRouter / Ollama Cloud key in Settings, or\n"
+            "    • Ensure `opencode models` lists free models "
+            "(OpenCode Zen / provider login may be required).",
+            flush=True,
+        )
     return []

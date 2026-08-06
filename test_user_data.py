@@ -96,6 +96,51 @@ def test_opencode_argv_wraps_cmd(monkeypatch, tmp_path):
     assert argv[3:] == ["run", "hi"]
 
 
+def test_soft_install_opencode_skips_when_present(monkeypatch, tmp_path):
+    import user_data
+
+    monkeypatch.setattr(user_data, "find_opencode", lambda: str(tmp_path / "opencode.exe"))
+    out = user_data.soft_install_opencode()
+    assert out["ok"] is True
+    assert out["already_present"] is True
+    assert "opencode.exe" in out["path"]
+
+
+def test_parse_and_pick_opencode_free_models():
+    import model_prober
+
+    text = (
+        "opencode/big-pickle\n"
+        "opencode/claude-opus-5\n"
+        "opencode/deepseek-v4-flash-free\n"
+        "  opencode/laguna-s-2.1-free  free  $0\n"
+        "\x1b[32mopencode/mimo-v2.5-free\x1b[0m\n"
+        "openrouter/other/x\n"
+    )
+    ids = model_prober._parse_opencode_model_ids(text)
+    assert "opencode/big-pickle" in ids
+    assert "opencode/deepseek-v4-flash-free" in ids
+    assert "opencode/laguna-s-2.1-free" in ids
+    assert "opencode/mimo-v2.5-free" in ids
+    picked = model_prober._pick_opencode_free_candidates(ids)
+    assert "opencode/big-pickle" in picked
+    assert "opencode/deepseek-v4-flash-free" in picked
+    assert "opencode/claude-opus-5" not in picked
+
+
+def test_pick_opencode_falls_back_to_cheap_hints():
+    import model_prober
+
+    listed = [
+        "opencode/claude-opus-5",
+        "opencode/gpt-5-nano",
+        "opencode/gemini-3-flash",
+    ]
+    picked = model_prober._pick_opencode_free_candidates(listed)
+    assert picked[0] in ("opencode/gpt-5-nano", "opencode/gemini-3-flash")
+    assert "opencode/claude-opus-5" not in picked
+
+
 def test_probe_skips_openrouter_without_key(tmp_path, monkeypatch):
     import io
 

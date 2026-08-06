@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -263,6 +264,7 @@ class KeysBody(BaseModel):
     firecrawl_key: str | None = None
     firecrawl_backup_key: str | None = None
     openrouter_key: str | None = None
+    ollama_key: str | None = None
 
 
 class ResumeBody(BaseModel):
@@ -286,6 +288,7 @@ async def setup_keys(body: KeysBody):
         firecrawl_key=body.firecrawl_key,
         firecrawl_backup_key=body.firecrawl_backup_key,
         openrouter_key=body.openrouter_key,
+        ollama_key=body.ollama_key,
     )
     return user_data.setup_status()
 
@@ -367,7 +370,7 @@ async def setup_complete(body: SettingsBody = SettingsBody()):
     if not status["opencode_found"]:
         raise HTTPException(
             status_code=400,
-            detail="OpenCode not found — reinstall the app or install OpenCode",
+            detail="OpenCode not found — use Install OpenCode, or install from opencode.ai",
         )
     boards = config.load_search_config().get("job_boards") or []
     if not boards:
@@ -375,6 +378,14 @@ async def setup_complete(body: SettingsBody = SettingsBody()):
     updates = {"onboarding_complete": True}
     user_data.save_settings(updates)
     return user_data.setup_status()
+
+
+@app.post("/api/setup/install-opencode")
+async def setup_install_opencode():
+    """Detect OpenCode or soft-install via official channels (network; can take a few minutes)."""
+    result = await asyncio.to_thread(user_data.soft_install_opencode)
+    status = user_data.setup_status()
+    return {**result, "setup": status}
 
 
 @app.post("/api/setup/settings")

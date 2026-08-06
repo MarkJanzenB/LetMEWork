@@ -4,10 +4,15 @@ Maintainer: Mark Janzen Bandola
 Repo: https://github.com/MarkJanzenB/LetMEWork
 
 Based on Kurt Chan's AI Job Hunt Agent (core scrape-and-score workflow).
-This edition adds OpenCode, SQLite, onboarding, React UI, and this installer.
+This edition adds OpenCode, SQLite, onboarding, a local dashboard UI, and this installer.
 
-This Setup puts Let Me Work on your PC, then installs missing
-dependencies from official sources (network required):
+This Setup puts Let Me Work on your PC. On the Select Additional Tasks page you can
+opt in to install the OpenCode CLI if it is missing (recommended, checked by default).
+
+After files are copied, Setup:
+  1. Detects whether OpenCode is already installed
+  2. If found — skips download
+  3. If missing and you opted in — soft-installs from official sources (network):
 
   • Node.js LTS — via winget / Chocolatey / Scoop / nodejs.org MSI (if needed)
   • OpenCode — via npm (`npm install -g opencode-ai`) or Scoop / Chocolatey

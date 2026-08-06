@@ -624,6 +624,21 @@
       color: var(--led-alert);
     }
 
+    #setup-warn-banner[hidden] { display: none !important; }
+    #setup-warn-banner:not([hidden]) {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: var(--sp-3);
+      background: rgba(255, 88, 88, 0.12);
+      border-color: rgba(255, 88, 88, 0.45);
+      color: var(--led-alert);
+      font-weight: 600;
+    }
+    #setup-warn-banner .setup-warn-text { flex: 1; min-width: 12rem; }
+    #setup-warn-banner .btn { flex-shrink: 0; }
+
     .banner-update {
       position: fixed;
       top: 0;
@@ -1597,6 +1612,9 @@
           <a id="wiz-ol-link" href="https://ollama.com/settings/keys" target="_blank" rel="noopener">Get Ollama key →</a>
         </p>
         <span id="wiz-oc-status" class="status-pill">Checking OpenCode…</span>
+        <button type="button" id="wiz-oc-install" class="btn btn-secondary--inactive" style="display:none;margin-left:0.5rem;" onclick="installOpenCodeSoft('wiz')">
+          Install OpenCode
+        </button>
       </div>
 
       <div class="wizard-step" data-step="2">
@@ -1679,6 +1697,9 @@
       </fieldset>
       <p class="form-hint">Unchecked boards are skipped on the next Run Agent. OnlineJobs.ph is off by default (account verification often blocks applying).</p>
       <p id="settings-oc" class="form-hint" style="margin-top:var(--sp-4)"></p>
+      <button type="button" id="set-oc-install" class="btn btn-secondary--inactive" style="display:none;margin-top:var(--sp-2);" onclick="installOpenCodeSoft('set')">
+        Install OpenCode
+      </button>
       <div class="wizard-nav">
         <button type="button" class="btn btn-secondary--inactive" onclick="closeSettings()">Cancel</button>
         <button type="button" class="btn btn-primary" onclick="saveSettings()">Save</button>
@@ -1720,7 +1741,10 @@
       </div>
     </header>
 
-    <div id="setup-warn-banner" class="banner banner-error" hidden role="status"></div>
+    <div id="setup-warn-banner" class="banner banner-error" hidden role="alert">
+      <span class="setup-warn-text" id="setup-warn-text"></span>
+      <button type="button" class="btn btn-secondary--inactive" id="setup-warn-settings" onclick="openSettings()">Open Settings</button>
+    </div>
 
     <!-- Progress Pipeline -->
     <div id="progress-section" class="pipeline" style="display:none;" aria-live="polite">
@@ -3314,21 +3338,71 @@
 
     function updateSetupWarnBanner(st) {
       const el = document.getElementById('setup-warn-banner');
+      const textEl = document.getElementById('setup-warn-text');
       if (!el || !st) return;
       const parts = [];
       if (!st.has_firecrawl) {
-        parts.push('No Firecrawl API key configured — add one in Settings before scraping.');
+        parts.push('Firecrawl API key missing — required to scrape job listings.');
       }
       if (!st.has_resume) {
-        parts.push('No resume found — paste or upload one in Settings before running.');
+        parts.push('Resume missing — paste or upload one before running.');
+      }
+      if (!st.opencode_found) {
+        parts.push('OpenCode CLI not found — install it from Settings or opencode.ai.');
       }
       if (!parts.length) {
-        el.hidden = true;
-        el.textContent = '';
+        if (textEl) textEl.textContent = '';
+        el.setAttribute('hidden', '');
         return;
       }
-      el.textContent = parts.join(' ');
-      el.hidden = false;
+      if (textEl) textEl.textContent = parts.join(' ');
+      else el.textContent = parts.join(' ');
+      el.removeAttribute('hidden');
+    }
+
+    async function installOpenCodeSoft(where) {
+      const btn = document.getElementById(where === 'set' ? 'set-oc-install' : 'wiz-oc-install');
+      const statusEl = document.getElementById(where === 'set' ? 'settings-oc' : 'wiz-oc-status');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Installing…';
+      }
+      if (statusEl && where !== 'set') {
+        statusEl.textContent = 'Soft-installing OpenCode (may take a few minutes)…';
+        statusEl.className = 'status-pill';
+      }
+      showToast('Installing OpenCode from official channels…', { duration: 8000 });
+      try {
+        const r = await fetch('/api/setup/install-opencode', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (data.setup) setupStatus = data.setup;
+        else setupStatus = await fetchSetupStatus();
+        if (data.ok) {
+          showToast(data.already_present
+            ? 'OpenCode was already on this PC.'
+            : 'OpenCode installed and detected.', { variant: 'success' });
+        } else {
+          showToast(data.message || 'OpenCode install failed.', { variant: 'error', duration: 8000 });
+        }
+        await fillWizardFromStatus();
+        if (document.getElementById('settings-overlay')?.classList.contains('open')) {
+          const oc = document.getElementById('settings-oc');
+          const setInstall = document.getElementById('set-oc-install');
+          if (oc) {
+            oc.textContent = setupStatus.opencode_found
+              ? 'OpenCode: ' + setupStatus.opencode_path
+              : 'OpenCode not found — soft-install below, or run: npm install -g opencode-ai';
+          }
+          if (setInstall) setInstall.style.display = setupStatus.opencode_found ? 'none' : '';
+        }
+      } catch (e) {
+        showToast('OpenCode install request failed: ' + (e.message || e), { variant: 'error' });
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Install OpenCode';
+        }
+      }
     }
 
     function showWizard() {
@@ -3355,12 +3429,15 @@
         document.getElementById('wiz-or-link').href = setupStatus.openrouter_keys_url;
       }
       const oc = document.getElementById('wiz-oc-status');
+      const wizInstall = document.getElementById('wiz-oc-install');
       if (setupStatus.opencode_found) {
-        oc.textContent = 'OpenCode found';
+        oc.textContent = 'OpenCode found' + (setupStatus.opencode_path ? ': ' + setupStatus.opencode_path : '');
         oc.className = 'status-pill ok';
+        if (wizInstall) wizInstall.style.display = 'none';
       } else {
-        oc.textContent = 'OpenCode missing — reinstall or install from opencode.ai';
+        oc.textContent = 'OpenCode missing — install soft via button, or from opencode.ai';
         oc.className = 'status-pill bad';
+        if (wizInstall) wizInstall.style.display = '';
       }
       document.getElementById('wiz-firecrawl').placeholder = setupStatus.has_firecrawl
         ? (setupStatus.firecrawl_masked || '••••') + ' (saved — leave blank to keep)'
@@ -3468,6 +3545,7 @@
           });
           if (!res.ok) throw new Error((await res.json()).detail || 'Setup incomplete');
           setupStatus = await res.json();
+          updateSetupWarnBanner(setupStatus);
           hideWizard();
           showToast('Setup complete — keys stay on this PC.');
           return;
@@ -3544,9 +3622,11 @@
             : 'Not configured (optional)';
         }
         const oc = document.getElementById('settings-oc');
+        const setInstall = document.getElementById('set-oc-install');
         oc.textContent = setupStatus.opencode_found
           ? 'OpenCode: ' + setupStatus.opencode_path
-          : 'OpenCode not found — reinstall or run: npm install -g opencode-ai';
+          : 'OpenCode not found — soft-install below, or run: npm install -g opencode-ai';
+        if (setInstall) setInstall.style.display = setupStatus.opencode_found ? 'none' : '';
         const pdfStatus = document.getElementById('set-pdf-status');
         pdfStatus.textContent = setupStatus.has_resume_pdf
           ? `On disk: ${setupStatus.resume_pdf_name || 'resume.pdf'}`
@@ -3752,6 +3832,19 @@
       try {
         st = await fetchSetupStatus();
         if (st.needs_onboarding) showWizard();
+        else if (st && (!st.has_firecrawl || !st.has_resume || !st.opencode_found)) {
+          // Dashboard path: onboarding already done but deps missing — banner + toast
+          const bits = [];
+          if (!st.has_firecrawl) bits.push('Firecrawl key');
+          if (!st.has_resume) bits.push('resume');
+          if (!st.opencode_found) bits.push('OpenCode');
+          showToast('Setup incomplete: missing ' + bits.join(', ') + '.', {
+            variant: 'error',
+            duration: 7000,
+            actionLabel: 'Settings',
+            onAction: () => openSettings(),
+          });
+        }
       } catch { /* offline / first paint */ }
       checkForAppUpdate(st); // do not await — wizard stays interactive
       loadJobs();

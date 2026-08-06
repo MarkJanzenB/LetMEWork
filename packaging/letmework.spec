@@ -21,6 +21,7 @@ a = Analysis(
         (str(ROOT / "ui"), "ui"),
         (str(ROOT / "prompts"), "prompts"),
         (str(ROOT / "packaging" / "opencode.json"), "."),
+        (str(ROOT / "packaging" / "install_opencode.ps1"), "."),
         (_fc_dir, "firecrawl"),
     ]
     + fc_datas,

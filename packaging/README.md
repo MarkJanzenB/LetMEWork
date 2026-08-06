@@ -30,13 +30,17 @@ App checks `https://github.com/MarkJanzenB/LetMEWork/releases/latest/download/la
 
 Post-install script (`install_opencode.ps1`):
 
-1. Skip if `opencode` already on PATH  
-2. Else try Scoop/Choco for OpenCode directly  
-3. Else install **Node.js LTS** (winget → choco → scoop → official nodejs.org MSI)  
-4. Then `npm install -g opencode-ai`  
-5. Exit **1** if OpenCode still missing (Inno offers Retry)
+1. **Wizard Tasks** — “Install OpenCode CLI if missing” (checked by default)  
+2. **Detect** (`-DetectOnly`) — PATH, `%APPDATA%\npm`, Scoop, `where.exe`, npm prefix  
+3. If found → skip download (tell the user; quiet when silent)  
+4. If missing + task opted in → confirm (interactive) then soft-install  
+5. Soft install: Scoop/Choco OpenCode, else Node LTS then `npm install -g opencode-ai`  
+6. If the installer tool errors but OpenCode is still detected → treat as **success**  
+7. Exit **1** only when still missing (Inno offers Retry); exit **2** = detect-only miss  
 
-Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + vanilla UI + Firecrawl client (source + rthook so `__init__.py` exists under `_MEI`) + `opencode.json` template + pypdf, etc.
+**Important:** recompile `LetMeWork.iss` after changing this script — an old Setup EXE still runs the old post-install behavior.
+
+Already inside `LetMeWork.exe` (PyInstaller): Python + FastAPI + vanilla UI + Firecrawl client (source + rthook so `__init__.py` exists under `_MEI`) + `opencode.json` template + `install_opencode.ps1` + pypdf, etc.
 
 Not installed (BYOK): Firecrawl / OpenRouter API keys.
 

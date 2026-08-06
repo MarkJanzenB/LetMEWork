@@ -8,13 +8,15 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 APP_NAME = "LetMeWork"
-APP_VERSION = "0.1.0-beta.3"
+APP_VERSION = "0.1.0-beta.4"
 FIRECRAWL_KEYS_URL = "https://www.firecrawl.dev/app/api-keys"
 OPENROUTER_KEYS_URL = "https://openrouter.ai/keys"
+OLLAMA_KEYS_URL = "https://ollama.com/settings/keys"
 OPENCODE_INSTALL_URL = "https://opencode.ai"
 
 
@@ -169,6 +171,7 @@ def write_env_keys(
     firecrawl_key: str | None = None,
     firecrawl_backup_key: str | None = None,
     openrouter_key: str | None = None,
+    ollama_key: str | None = None,
 ) -> None:
     """Update keys in AppData .env. Pass None to leave unchanged; "" to clear."""
     current = read_env_keys()
@@ -185,13 +188,19 @@ def write_env_keys(
     _set("FIRECRAWL_API_KEY", firecrawl_key)
     _set("FIRECRAWL_API_KEY_BACKUP", firecrawl_backup_key)
     _set("OPENROUTER_API_KEY", openrouter_key)
+    _set("OLLAMA_API_KEY", ollama_key)
 
     lines = [
         "# Let Me Work — keys stored ONLY on this PC (never uploaded).",
         f"# Location: {env_path()}",
         "",
     ]
-    for k in ("FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY_BACKUP", "OPENROUTER_API_KEY"):
+    for k in (
+        "FIRECRAWL_API_KEY",
+        "FIRECRAWL_API_KEY_BACKUP",
+        "OPENROUTER_API_KEY",
+        "OLLAMA_API_KEY",
+    ):
         if k in current and current[k]:
             lines.append(f"{k}={current[k]}")
     env_path().write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -381,11 +390,102 @@ def find_opencode() -> str | None:
         candidates += [npm / "opencode.exe", npm / "opencode.cmd"]
     if local:
         candidates.append(Path(local) / "Programs" / "opencode" / "opencode.exe")
+        candidates.append(Path(local) / "Programs" / "opencode" / "bin" / "opencode.exe")
     candidates.append(Path.home() / "scoop" / "shims" / "opencode.exe")
+    candidates.append(Path.home() / "scoop" / "apps" / "opencode" / "current" / "opencode.exe")
     for c in candidates:
         if c.is_file():
             return str(c.resolve())
     return None
+
+
+def install_opencode_script_path() -> Path | None:
+    """PowerShell soft-installer shipped next to the app or in packaging/."""
+    for p in (
+        install_dir() / "install_opencode.ps1",
+        resource_dir() / "install_opencode.ps1",
+        Path(__file__).resolve().parent / "packaging" / "install_opencode.ps1",
+    ):
+        if p.is_file():
+            return p
+    return None
+
+
+def soft_install_opencode() -> dict:
+    """Detect OpenCode; if missing, run official soft-install script (network)."""
+    found = find_opencode()
+    if found:
+        return {
+            "ok": True,
+            "already_present": True,
+            "path": found,
+            "message": f"OpenCode already on this PC: {found}",
+            "exit_code": 0,
+        }
+
+    script = install_opencode_script_path()
+    if not script:
+        return {
+            "ok": False,
+            "already_present": False,
+            "path": None,
+            "message": "Install script missing. Run: npm install -g opencode-ai",
+            "exit_code": -1,
+        }
+
+    if os.name != "nt":
+        return {
+            "ok": False,
+            "already_present": False,
+            "path": None,
+            "message": "Soft install is Windows-only. Install OpenCode from https://opencode.ai/docs/",
+            "exit_code": -1,
+        }
+
+    ps = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    cmd = [
+        str(ps),
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        exit_code = int(proc.returncode)
+        log = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    except subprocess.TimeoutExpired:
+        exit_code = -1
+        log = "OpenCode soft install timed out after 10 minutes."
+    except OSError as exc:
+        exit_code = -1
+        log = str(exc)
+
+    found = find_opencode()
+    if found:
+        return {
+            "ok": True,
+            "already_present": False,
+            "path": found,
+            "message": f"OpenCode ready: {found}",
+            "exit_code": exit_code,
+            "log_tail": log[-2000:] if log else "",
+        }
+    return {
+        "ok": False,
+        "already_present": False,
+        "path": None,
+        "message": "OpenCode still not found after soft install.",
+        "exit_code": exit_code,
+        "log_tail": log[-2000:] if log else "",
+    }
 
 
 def setup_status() -> dict:
@@ -398,6 +498,7 @@ def setup_status() -> dict:
         "FIRECRAWL_API_KEY_BACKUP", ""
     )
     ork = keys.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY", "")
+    olk = keys.get("OLLAMA_API_KEY") or os.environ.get("OLLAMA_API_KEY", "")
     oc = find_opencode()
     resume = resume_path()
     repo_resume = resource_dir() / "resume.md"
@@ -419,9 +520,11 @@ def setup_status() -> dict:
         "has_firecrawl": bool(fc or fc_backup),
         "has_firecrawl_backup": bool(fc_backup),
         "has_openrouter": bool(ork),
+        "has_ollama_key": bool(olk),
         "firecrawl_masked": mask_key(fc),
         "firecrawl_backup_masked": mask_key(fc_backup),
         "openrouter_masked": mask_key(ork),
+        "ollama_masked": mask_key(olk),
         "opencode_path": oc,
         "opencode_found": bool(oc),
         "has_resume": has_resume,
@@ -431,6 +534,7 @@ def setup_status() -> dict:
         "resume_pdf_name": settings_pdf_name if pdf.exists() else "",
         "firecrawl_keys_url": FIRECRAWL_KEYS_URL,
         "openrouter_keys_url": OPENROUTER_KEYS_URL,
+        "ollama_keys_url": OLLAMA_KEYS_URL,
         "opencode_install_url": OPENCODE_INSTALL_URL,
         "frozen": is_frozen(),
         "ready": ready,

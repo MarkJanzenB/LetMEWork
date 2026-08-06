@@ -126,12 +126,12 @@ SQLite data/jobs.db (+ optional output/*.json)
 
 ### Ollama (implemented)
 
-1. **Discover** — `GET {OLLAMA_HOST}/api/tags` (default `http://127.0.0.1:11434`; override with env `OLLAMA_HOST`).  
-2. **Probe** — each tag via Ollama’s own `POST /api/generate` (not OpenCode).  
-3. **Sync into OpenCode** — healthy tags are written to `opencode.json` under `provider.ollama` (OpenAI-compatible `baseURL` `{OLLAMA_HOST}/v1` + a `models` map). See `model_prober.sync_ollama_models_to_opencode`.  
+1. **Discover** — local `GET {OLLAMA_HOST}/api/tags` (default `http://127.0.0.1:11434`), plus `https://ollama.com/api/tags` when `OLLAMA_API_KEY` is set.  
+2. **Probe** — each tag via Ollama’s own `POST /api/generate` (not OpenCode); cloud calls use the Bearer key.  
+3. **Sync into OpenCode** — healthy tags are written to `opencode.json` under `provider.ollama` (OpenAI-compatible `baseURL` + a `models` map). If local daemon is down but a cloud key is set, `baseURL` points at `https://ollama.com/v1`.  
 4. **Run** — healthy entries are used as OpenCode ids `ollama/<tag>` during the job pipeline.
 
-Local models and Ollama-served cloud-style tags both work **if** they appear in `/api/tags` and pass the generate probe. If `ollama serve` is down, probing skips Ollama and falls through to other candidates.
+**Keys:** local `ollama serve` needs **no** API key. Optional **Ollama Cloud** key (`OLLAMA_API_KEY`, from [ollama.com/settings/keys](https://ollama.com/settings/keys)) is configured in onboarding/Settings under **Model providers** alongside OpenRouter.
 
 ### OpenRouter & OpenCode builtins (implemented)
 

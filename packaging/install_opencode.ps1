@@ -1,10 +1,21 @@
 # Let Me Work — install runtime deps via official channels only
 # 1) Node.js LTS (if needed)  2) OpenCode (npm / scoop / choco)
 # Docs: https://opencode.ai/docs/  https://nodejs.org/
-# Exit 0 = OpenCode available; Exit 1 = failed (Inno can retry).
 #
-# PATH rules: use Machine/User env Path + %APPDATA%\npm etc.
-# Never hardcode a username or machine-specific absolute path.
+# Exit codes:
+#   0 = OpenCode available (already on disk, or just installed)
+#   1 = install attempted and still missing
+#   2 = DetectOnly: OpenCode not found (no install attempted)
+#
+# PATH rules: Machine/User env Path + %APPDATA%\npm — never hardcode a username.
+#
+# Usage:
+#   install_opencode.ps1              # detect; if missing, soft-install
+#   install_opencode.ps1 -DetectOnly  # detect only (exit 0/2)
+
+param(
+    [switch]$DetectOnly
+)
 
 $ErrorActionPreference = "Continue"
 Write-Host ""
@@ -14,7 +25,6 @@ function Refresh-Path {
     $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
     $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $parts = New-Object System.Collections.Generic.List[string]
-    # Prefer User PATH so per-user npm shims win over stale Machine entries
     foreach ($chunk in @($user, $machine, $env:Path)) {
         if (-not [string]::IsNullOrWhiteSpace($chunk)) {
             foreach ($p in ($chunk -split ";")) {
@@ -23,7 +33,6 @@ function Refresh-Path {
             }
         }
     }
-    # Standard per-user npm global bin (resolves via env — no hardcoded user folder)
     if ($env:APPDATA) {
         $npmUser = Join-Path $env:APPDATA "npm"
         if ((Test-Path $npmUser) -and -not $parts.Contains($npmUser)) {
@@ -64,10 +73,26 @@ function Resolve-OpenCode {
     }
     if ($env:LOCALAPPDATA) {
         [void]$candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\opencode\opencode.exe"))
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\opencode\bin\opencode.exe"))
     }
     if ($env:USERPROFILE) {
         [void]$candidates.Add((Join-Path $env:USERPROFILE "scoop\shims\opencode.exe"))
+        [void]$candidates.Add((Join-Path $env:USERPROFILE "scoop\apps\opencode\current\opencode.exe"))
     }
+    if ($env:ProgramFiles) {
+        [void]$candidates.Add((Join-Path $env:ProgramFiles "opencode\opencode.exe"))
+    }
+    # where.exe can see PATH entries Get-Command misses in some Setup contexts
+    try {
+        $where = & where.exe opencode 2>$null
+        if ($where) {
+            foreach ($line in @($where)) {
+                $t = "$line".Trim()
+                if ($t) { [void]$candidates.Add($t) }
+            }
+        }
+    } catch { }
+
     if (Get-Command npm -ErrorAction SilentlyContinue) {
         try {
             $prefix = (& npm config get prefix 2>$null | Select-Object -Last 1)
@@ -75,6 +100,7 @@ function Resolve-OpenCode {
                 $prefix = $prefix.Trim()
                 [void]$candidates.Add((Join-Path $prefix "opencode.exe"))
                 [void]$candidates.Add((Join-Path $prefix "opencode.cmd"))
+                [void]$candidates.Add((Join-Path $prefix "opencode"))
             }
         } catch { }
     }
@@ -87,7 +113,7 @@ function Resolve-OpenCode {
 function Test-OpenCode {
     $path = Resolve-OpenCode
     if ($path) {
-        Write-Host "OpenCode ready (resolved via PATH / %APPDATA% / npm prefix)."
+        Write-Host "OpenCode detected: $path"
         return $true
     }
     return $false
@@ -99,7 +125,7 @@ function Install-NodeLts {
         return $true
     }
 
-    Write-Host "Node.js not found — installing LTS from official sources…"
+    Write-Host "Node.js not found - installing LTS from official sources..."
 
     if (Test-Cmd "winget") {
         Write-Host "Trying: winget install OpenJS.NodeJS.LTS (user scope)"
@@ -129,7 +155,7 @@ function Install-NodeLts {
 
     try {
         $tmp = Join-Path $env:TEMP "node-lts.msi"
-        Write-Host "Downloading Node.js LTS MSI from nodejs.org…"
+        Write-Host "Downloading Node.js LTS MSI from nodejs.org..."
         $index = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json" -TimeoutSec 30
         $lts = $index | Where-Object { $_.lts -ne $false } | Select-Object -First 1
         if (-not $lts) { throw "Could not resolve LTS version from nodejs.org" }
@@ -137,7 +163,7 @@ function Install-NodeLts {
         $uri = "https://nodejs.org/dist/v$ver/node-v$ver-x64.msi"
         Write-Host "URL: $uri"
         Invoke-WebRequest -Uri $uri -OutFile $tmp -UseBasicParsing
-        Write-Host "Running MSI (quiet)…"
+        Write-Host "Running MSI (quiet)..."
         Start-Process msiexec.exe -ArgumentList "/i `"$tmp`" /qn /norestart" -Wait -NoNewWindow
         Refresh-Path
         Remove-Item $tmp -ErrorAction SilentlyContinue
@@ -158,7 +184,7 @@ function Install-OpenCode {
         Ensure-UserNpmOnPath
         Refresh-Path
         if (Test-OpenCode) { return $true }
-        Write-Host "npm finished but 'opencode' not found on User PATH / %APPDATA%\npm yet."
+        Write-Host "npm finished but OpenCode not resolved yet (PATH may need a new session)."
         return $false
     }
 
@@ -181,19 +207,26 @@ function Install-OpenCode {
 
 # --- main ---
 if (Test-OpenCode) {
-    Write-Host "=== Dependency setup finished (OpenCode OK) ==="
+    Write-Host "=== OpenCode already on this PC - no install needed ==="
     exit 0
 }
 
+if ($DetectOnly) {
+    Write-Host "OpenCode not found (detect-only)."
+    exit 2
+}
+
+Write-Host "OpenCode not found - attempting soft install from official channels..."
+
 if (-not (Test-Cmd "npm")) {
     if (Test-Cmd "scoop") {
-        Write-Host "Installing OpenCode via Scoop…"
+        Write-Host "Installing OpenCode via Scoop..."
         scoop install opencode
         Refresh-Path
         if (Test-OpenCode) { exit 0 }
     }
     if (Test-Cmd "choco") {
-        Write-Host "Installing OpenCode via Chocolatey…"
+        Write-Host "Installing OpenCode via Chocolatey..."
         choco install opencode -y
         Refresh-Path
         if (Test-OpenCode) { exit 0 }
@@ -201,18 +234,23 @@ if (-not (Test-Cmd "npm")) {
 }
 
 if (-not (Install-NodeLts)) {
+    # Last chance: maybe OpenCode exists but npm/Node detection failed earlier
+    if (Test-OpenCode) {
+        Write-Host "=== OpenCode detected despite Node install issues - OK ==="
+        exit 0
+    }
     Write-Host ""
     Write-Host "Could not install Node.js automatically."
-    Write-Host "Install from https://nodejs.org then re-run:"
-    Write-Host "  npm install -g opencode-ai"
+    Write-Host "Install from https://nodejs.org then run: npm install -g opencode-ai"
     exit 1
 }
 
 [void](Install-OpenCode)
 
+# npm/scoop may error (already installed, EPERM, network) while binary is on disk
 if (-not (Test-OpenCode)) {
     Write-Host ""
-    Write-Host "OpenCode install failed or PATH not updated."
+    Write-Host "OpenCode install reported a problem and the binary was not found."
     Write-Host "Manual fix: npm install -g opencode-ai"
     Write-Host "Then confirm: where.exe opencode"
     Write-Host "Docs: https://opencode.ai/docs/"

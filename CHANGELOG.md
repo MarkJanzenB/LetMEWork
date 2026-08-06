@@ -10,18 +10,30 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ## [Unreleased]
 
 ### Added
-- Ollama Cloud API key (`OLLAMA_API_KEY`) in onboarding/Settings under **Model providers** (alongside OpenRouter); local `ollama serve` still needs no key
 ### Changed
 ### Fixed
+### Removed
+
+## [0.1.0-beta.4] — 2026-08-06
+
+### Added
+- Ollama Cloud API key (`OLLAMA_API_KEY`) in onboarding/Settings under **Model providers** (alongside OpenRouter); local `ollama serve` still needs no key
+- Installer: Tasks opt-in for OpenCode; detect-first; soft-install only if missing; recover when install errors but binary is present; quieter silent Setup
+- Onboarding/Settings **Install OpenCode** soft-install via `/api/setup/install-opencode`
+
+### Fixed
+- OpenCode free-model discovery: parse verbose/ANSI lists, include `big-pickle` + `*-free`, fall back to cheap-looking ids; clearer WARNING when nothing is healthy
 - Packaged EXE: bundle firecrawl package data so version lookup no longer fails under `_MEI`
 - Packaged EXE: seed `%APPDATA%\LetMeWork\opencode.json` with `job-agent`; run OpenCode with `OPENCODE_CONFIG` + AppData cwd (fixes agent-not-found on launch)
 - Refresh User/Machine PATH + wrap `opencode.cmd` via `cmd.exe` so GUI-launched EXE finds npm OpenCode
 - Clearer console warning when OpenCode CLI is missing vs models merely unhealthy
 - Model discovery: no hardcoded OpenRouter/OpenCode menus — list from Ollama / OpenRouter API / `opencode models`; skip OpenRouter when not configured
 - Settings / onboarding: show **Not configured** instead of fake `fc-…` / `sk-or-…` placeholders when keys are empty
-- Dashboard warns when Firecrawl key or resume is missing (even after onboarding)
+- Dashboard warns (banner + toast) when Firecrawl key, resume, or OpenCode is missing after onboarding
 
-### Removed
+### Credits
+- Core scrape-and-score workflow: [Kurt Chan / AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper)
+- Let Me Work edition: [Mark Janzen Bandola](https://github.com/MarkJanzenB)
 
 ## [0.1.0-beta.3] — 2026-08-06
 
@@ -68,7 +80,8 @@ First public beta of the Let Me Work (OpenCode) edition.
 - Core scrape-and-score workflow: [Kurt Chan / AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper)
 - Let Me Work edition: [Mark Janzen Bandola](https://github.com/MarkJanzenB)
 
-[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.3...HEAD
+[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.1
