@@ -2,6 +2,9 @@
 # 1) Node.js LTS (if needed)  2) OpenCode (npm / scoop / choco)
 # Docs: https://opencode.ai/docs/  https://nodejs.org/
 # Exit 0 = OpenCode available; Exit 1 = failed (Inno can retry).
+#
+# PATH rules: use Machine/User env Path + %APPDATA%\npm etc.
+# Never hardcode a username or machine-specific absolute path.
 
 $ErrorActionPreference = "Continue"
 Write-Host ""
@@ -10,18 +13,81 @@ Write-Host "=== Let Me Work dependency setup ==="
 function Refresh-Path {
     $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
     $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $env:Path = "$machine;$user"
+    $parts = New-Object System.Collections.Generic.List[string]
+    # Prefer User PATH so per-user npm shims win over stale Machine entries
+    foreach ($chunk in @($user, $machine, $env:Path)) {
+        if (-not [string]::IsNullOrWhiteSpace($chunk)) {
+            foreach ($p in ($chunk -split ";")) {
+                $t = $p.Trim()
+                if ($t -and -not $parts.Contains($t)) { [void]$parts.Add($t) }
+            }
+        }
+    }
+    # Standard per-user npm global bin (resolves via env — no hardcoded user folder)
+    if ($env:APPDATA) {
+        $npmUser = Join-Path $env:APPDATA "npm"
+        if ((Test-Path $npmUser) -and -not $parts.Contains($npmUser)) {
+            [void]$parts.Add($npmUser)
+        }
+    }
+    $env:Path = ($parts -join ";")
+}
+
+function Ensure-UserNpmOnPath {
+    if (-not $env:APPDATA) { return }
+    $npmDir = Join-Path $env:APPDATA "npm"
+    if (-not (Test-Path $npmDir)) { return }
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $entries = @()
+    if ($userPath) { $entries = @($userPath -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    if ($entries -contains $npmDir) { return }
+    $newPath = if ($userPath) { "$userPath;$npmDir" } else { $npmDir }
+    [System.Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Host "Ensured %APPDATA%\npm is on the User PATH."
+    Refresh-Path
 }
 
 function Test-Cmd([string]$Name) {
+    Refresh-Path
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Test-OpenCode {
+function Resolve-OpenCode {
     Refresh-Path
     $cmd = Get-Command opencode -ErrorAction SilentlyContinue
-    if ($cmd) {
-        Write-Host "OpenCode ready: $($cmd.Source)"
+    if ($cmd -and $cmd.Source) { return $cmd.Source }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:APPDATA) {
+        [void]$candidates.Add((Join-Path $env:APPDATA "npm\opencode.exe"))
+        [void]$candidates.Add((Join-Path $env:APPDATA "npm\opencode.cmd"))
+    }
+    if ($env:LOCALAPPDATA) {
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\opencode\opencode.exe"))
+    }
+    if ($env:USERPROFILE) {
+        [void]$candidates.Add((Join-Path $env:USERPROFILE "scoop\shims\opencode.exe"))
+    }
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        try {
+            $prefix = (& npm config get prefix 2>$null | Select-Object -Last 1)
+            if ($prefix) {
+                $prefix = $prefix.Trim()
+                [void]$candidates.Add((Join-Path $prefix "opencode.exe"))
+                [void]$candidates.Add((Join-Path $prefix "opencode.cmd"))
+            }
+        } catch { }
+    }
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    return $null
+}
+
+function Test-OpenCode {
+    $path = Resolve-OpenCode
+    if ($path) {
+        Write-Host "OpenCode ready (resolved via PATH / %APPDATA% / npm prefix)."
         return $true
     }
     return $false
@@ -89,9 +155,10 @@ function Install-OpenCode {
     if (Test-Cmd "npm") {
         Write-Host "Installing OpenCode: npm install -g opencode-ai"
         npm install -g opencode-ai
+        Ensure-UserNpmOnPath
         Refresh-Path
         if (Test-OpenCode) { return $true }
-        Write-Host "npm finished but 'opencode' not on PATH yet."
+        Write-Host "npm finished but 'opencode' not found on User PATH / %APPDATA%\npm yet."
         return $false
     }
 
@@ -147,6 +214,7 @@ if (-not (Test-OpenCode)) {
     Write-Host ""
     Write-Host "OpenCode install failed or PATH not updated."
     Write-Host "Manual fix: npm install -g opencode-ai"
+    Write-Host "Then confirm: where.exe opencode"
     Write-Host "Docs: https://opencode.ai/docs/"
     exit 1
 }

@@ -17,11 +17,13 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ## [0.1.0-beta.3] — 2026-08-06
 
 ### Changed
-- Primary dashboard is vanilla `ui/index.html` again (React SPA not served; installer bundles `ui/` only)
+- Primary dashboard is vanilla `ui/index.html` again (React SPA not served / not bundled)
+- Resume PDF upload: confirm + toast that scanned/image PDFs are not supported yet
+- OpenCode post-install PATH: prefer User PATH, ensure `%APPDATA%\npm`, resolve via env vars only (no hardcoded username)
 
-### Added
-- Clearer onboarding/Settings hints: scanned / image-only PDFs not supported yet
-- Modal + error toast when PDF upload finds no selectable text
+### Fixed
+- Packaged app resolves OpenCode under per-user npm / scoop locations when PATH is stale
+- Update check + banner runs on first launch even while onboarding wizard is open
 
 ## [0.1.0-beta.2] — 2026-08-06
 

@@ -71,16 +71,23 @@ def extract_pdf_text(data: bytes) -> str:
     from io import BytesIO
 
     from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
 
-    reader = PdfReader(BytesIO(data))
-    parts: list[str] = []
-    for page in reader.pages:
-        parts.append(page.extract_text() or "")
-    text = "\n".join(parts).strip()
+    try:
+        reader = PdfReader(BytesIO(data))
+        parts: list[str] = []
+        for page in reader.pages:
+            parts.append(page.extract_text() or "")
+        text = "\n".join(parts).strip()
+    except PdfReadError as exc:
+        raise ValueError(
+            f"Could not read PDF ({exc}). Use a text PDF from Word/Google Docs — "
+            "scanned image PDFs are not supported yet."
+        ) from exc
     if not text:
         raise ValueError(
-            "No text found in this PDF. Scanned / image-only resumes are not supported yet (no OCR). "
-            "Export from Word or Google Docs as a PDF with selectable text, or paste the resume into the text box."
+            "No text found in PDF. Export from Word as PDF with selectable text "
+            "(scanned image PDFs are not supported yet)."
         )
     return text
 
@@ -211,7 +218,10 @@ def mask_key(value: str | None) -> str:
 
 
 def find_opencode() -> str | None:
-    """Resolve OpenCode binary: OPENCODE_PATH → install dir → PATH."""
+    """Resolve OpenCode binary via env, install dir, PATH, then per-user npm/scoop.
+
+    Uses %APPDATA% / %LOCALAPPDATA% / home — never a hardcoded username.
+    """
     forced = os.environ.get("OPENCODE_PATH", "").strip()
     if forced and Path(forced).exists():
         return str(Path(forced).resolve())
@@ -223,7 +233,23 @@ def find_opencode() -> str | None:
             if candidate.is_file():
                 return str(candidate.resolve())
 
-    return shutil.which("opencode")
+    which = shutil.which("opencode")
+    if which:
+        return which
+
+    candidates: list[Path] = []
+    appdata = os.environ.get("APPDATA", "").strip()
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if appdata:
+        npm = Path(appdata) / "npm"
+        candidates += [npm / "opencode.exe", npm / "opencode.cmd"]
+    if local:
+        candidates.append(Path(local) / "Programs" / "opencode" / "opencode.exe")
+    candidates.append(Path.home() / "scoop" / "shims" / "opencode.exe")
+    for c in candidates:
+        if c.is_file():
+            return str(c.resolve())
+    return None
 
 
 def setup_status() -> dict:
