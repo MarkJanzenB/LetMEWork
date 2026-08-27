@@ -65,15 +65,16 @@ def test_get_jobs_merges_status(client, tmp_path):
     )
 
     # Set status
-    db.set_job_status(job_id, "applied")
+    db.set_application_status(job_id, "applied")
 
     res = client.get("/api/jobs")
     data = res.json()
     assert len(data) == 1
     assert data[0]["status"] == "applied"
+    assert data[0]["application_status"] == "applied"
 
 
-def test_get_jobs_status_defaults_to_none(client, tmp_path):
+def test_get_jobs_application_status_defaults_to_not_reviewed(client, tmp_path):
     import db
 
     db.init_db()
@@ -107,7 +108,8 @@ def test_get_jobs_status_defaults_to_none(client, tmp_path):
     res = client.get("/api/jobs")
     data = res.json()
     assert len(data) == 1
-    assert data[0]["status"] == "none"
+    assert data[0]["status"] == "not_reviewed"
+    assert data[0]["application_status"] == "not_reviewed"
 
 
 def test_post_status_saves_applied(client, tmp_path):
@@ -132,11 +134,11 @@ def test_post_status_saves_applied(client, tmp_path):
     assert res.status_code == 200
 
     # Verify in database
-    status = db.get_job_status(job_id)
+    status = db.get_application_status(job_id)
     assert status == "applied"
 
 
-def test_post_status_none_removes_entry(client, tmp_path):
+def test_post_status_rejects_legacy_none(client, tmp_path):
     import db
 
     db.init_db()
@@ -155,14 +157,15 @@ def test_post_status_none_removes_entry(client, tmp_path):
     )
 
     # Set to applied first
-    db.set_job_status(job_id, "applied")
+    db.set_application_status(job_id, "applied")
 
-    # Now set to none
-    client.post("/api/status", json={"url": "https://example.com", "status": "none"})
+    # 'none' is a legacy value — must be rejected, not silently accepted
+    res = client.post("/api/status", json={"url": "https://example.com", "status": "none"})
+    assert res.status_code == 400
 
-    # Verify in database
-    status = db.get_job_status(job_id)
-    assert status == "none"
+    # Verify application state unchanged
+    status = db.get_application_status(job_id)
+    assert status == "applied"
 
 
 def test_post_status_rejects_invalid_value(client, tmp_path):
@@ -332,11 +335,68 @@ def test_soft_delete_hides_job_and_blocks_pipeline_resurrect(client):
     assert jobs["https://example.com/gone"]["id"] == job_id
 
 
-def test_soft_delete_endpoint(client):
-    _insert_job(__import__("db"), url="https://example.com/del-me", score=50)
-    res = client.post("/api/delete", json={"url": "https://example.com/del-me"})
+def test_get_jobs_include_signals_and_saved(client):
+    import db
+    job_id = _insert_job(db, url="https://example.com/signals", score=80)
+    
+    # Set some state to trigger signals
+    with db.get_db() as conn:
+        # signal_waiting: applied and updated > 7 days ago
+        # signal_expiring: deadline within 7 days
+        # signal_stale: verified > 14 days ago
+        conn.execute(
+            "UPDATE jobs SET deadline_at=?, last_verified_at=? WHERE id=?",
+            (db._now(), "2000-01-01T00:00:00Z", job_id)
+        )
+        conn.execute(
+            "INSERT INTO applications (job_id, status, updated_at, created_at, is_saved) "
+            "VALUES (?, 'applied', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 1)",
+            (job_id,)
+        )
+
+    res = client.get("/api/jobs")
+    job = res.json()[0]
+    assert "is_saved" in job
+    assert job["is_saved"] is True
+    assert "signal_waiting" in job
+    assert "signal_expiring" in job
+    assert "signal_stale" in job
+    assert "signal_archive" in job
+
+
+def test_post_save_job(client):
+    import db
+    url = "https://example.com/save-me"
+    job_id = _insert_job(db, url=url)
+    # Must have a score to appear in /api/jobs
+    db.upsert_score(
+        job_id,
+        {
+            "score": 80,
+            "verdict": "review",
+            "work_arrangement": "",
+            "match_reasons": [],
+            "red_flags": [],
+            "suggested_angle": "",
+        },
+    )
+    
+    # Save it
+    res = client.post("/api/jobs/save", json={"url": url, "saved": True})
     assert res.status_code == 200
-    assert all(j["url"] != "https://example.com/del-me" for j in client.get("/api/jobs").json())
+    
+    # Verify in /api/jobs
+    job = next(j for j in client.get("/api/jobs").json() if j["url"] == url)
+    assert job["is_saved"] is True
+    
+    # Unsave it
+    client.post("/api/jobs/save", json={"url": url, "saved": False})
+    job = next(j for j in client.get("/api/jobs").json() if j["url"] == url)
+    assert job["is_saved"] is False
+
+    # Not found
+    res = client.post("/api/jobs/save", json={"url": "https://nowhere.com", "saved": True})
+    assert res.status_code == 404
 
 
 def test_status_counts_match_live_jobs_not_orphans(client):
@@ -345,18 +405,18 @@ def test_status_counts_match_live_jobs_not_orphans(client):
 
     live = _insert_job(db, url="https://example.com/live", score=80)
     gone = _insert_job(db, url="https://example.com/gone-count", score=40)
-    db.set_job_status(live, "applied")
-    db.set_job_status(gone, "ignored")
+    db.set_application_status(live, "applied")
+    db.set_application_status(gone, "skipped")
     db.soft_delete_job_by_url("https://example.com/gone-count")
 
     res = client.get("/api/status-counts")
     assert res.status_code == 200
     counts = res.json()
-    assert counts["applied"] == 1
-    assert counts["ignored"] == 0  # soft-deleted must not inflate funnel
+    assert counts["application"]["applied"] == 1
+    assert counts["application"]["skipped"] == 0  # soft-deleted must not inflate funnel
     jobs = client.get("/api/jobs").json()
     assert len(jobs) == 1
-    assert sum(counts.values()) == len(jobs)
+    assert sum(counts["application"].values()) == len(jobs)
 
 
 def test_scrape_seeds_soft_deleted_urls():
@@ -526,23 +586,23 @@ def test_upload_resume_pdf_endpoint(client, tmp_path, monkeypatch):
     assert (tmp_path / "resume.md").exists()
 
 
-def test_bulk_apply_only_marks_none_status(client):
+def test_bulk_apply_only_marks_not_reviewed(client):
     import db
 
-    none_id = _insert_job(db, url="https://example.com/fresh", score=85)
-    ignored_id = _insert_job(db, url="https://example.com/ignored", score=90)
+    fresh_id = _insert_job(db, url="https://example.com/fresh", score=85)
+    skipped_id = _insert_job(db, url="https://example.com/skipped", score=90)
     hired_id = _insert_job(db, url="https://example.com/hired", score=95)
-    db.set_job_status(ignored_id, "ignored")
-    db.set_job_status(hired_id, "hired")
+    db.set_application_status(skipped_id, "skipped")
+    db.set_application_status(hired_id, "hired")
 
     res = client.post("/api/bulk-apply?min_score=80")
     assert res.status_code == 200
     body = res.json()
     assert body["count"] == 1
     assert body["urls"] == ["https://example.com/fresh"]
-    assert db.get_job_status(none_id) == "applied"
-    assert db.get_job_status(ignored_id) == "ignored"
-    assert db.get_job_status(hired_id) == "hired"
+    assert db.get_application_status(fresh_id) == "applied"
+    assert db.get_application_status(skipped_id) == "skipped"
+    assert db.get_application_status(hired_id) == "hired"
 
 
 def test_soft_delete_blocks_canonical_url_variants(client):

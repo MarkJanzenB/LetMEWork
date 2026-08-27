@@ -68,9 +68,14 @@ def test_canonical_host_leaves_regular_domains_alone():
 
 def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
     import agent
+    import config
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "resume.md").write_text("# Resume")
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    (tmp_path / "resume.md").write_text(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    )
     (tmp_path / "output").mkdir()
 
     mock_config = {"search_queries": ["frontend dev remote"]}
@@ -122,7 +127,9 @@ def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
     assert (3, "done") in step_statuses
     assert (4, "running") in step_statuses
     assert (4, "done") in step_statuses
-    assert result == {"total": 1, "above_threshold": 1}
+    assert result["total"] == 1
+    assert result["above_threshold"] == 1
+    assert "new" in result and "updated" in result
 
 
 def test_run_pipeline_raises_when_resume_missing(tmp_path, monkeypatch):
@@ -138,9 +145,14 @@ def test_run_pipeline_raises_when_resume_missing(tmp_path, monkeypatch):
 
 def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
     import agent
+    import config
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "resume.md").write_text("# Resume")
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    (tmp_path / "resume.md").write_text(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    )
     (tmp_path / "output").mkdir()
 
     mock_config = {"search_queries": ["q"]}
@@ -185,8 +197,12 @@ def test_run_pipeline_skips_cover_letters_by_default(tmp_path, monkeypatch):
     import config
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
     monkeypatch.setattr(config, "GENERATE_COVER_LETTERS_IN_PIPELINE", False)
-    (tmp_path / "resume.md").write_text("# Resume")
+    (tmp_path / "resume.md").write_text(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    )
     (tmp_path / "output").mkdir()
 
     mock_analyzed = [
@@ -226,6 +242,62 @@ def test_run_pipeline_skips_cover_letters_by_default(tmp_path, monkeypatch):
         agent.run_pipeline()
 
     mock_gen.assert_not_called()
+
+
+def test_run_pipeline_reuses_prev_queries_when_build_returns_empty(tmp_path, monkeypatch):
+    import agent
+    import config
+    import json
+    from unittest.mock import patch
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path / "output")
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    (tmp_path / "resume.md").write_text(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    )
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "search_config.json").write_text(
+        json.dumps({"search_queries": ["old query"]})
+    )
+
+    mock_raw_jobs = [
+        {
+            "title": "Dev",
+            "company": "Co",
+            "location": "Remote",
+            "url": "https://example.com",
+            "description": "",
+            "posted_date": "",
+            "source": "example.com",
+        }
+    ]
+    mock_analyzed = [
+        {
+            "title": "Dev",
+            "company": "Co",
+            "url": "https://example.com",
+            "score": 85,
+            "verdict": "apply",
+            "match_reasons": [],
+            "red_flags": [],
+            "suggested_angle": "",
+        }
+    ]
+
+    with (
+        patch.object(agent, "extract_resume_profile", return_value={"name": "Test"}),
+        patch.object(agent, "build_search_config", return_value={"search_queries": []}),
+        patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs) as mock_scrape,
+        patch.object(agent, "analyze_jobs", return_value=mock_analyzed),
+        patch.object(agent, "generate_cover_letters"),
+    ):
+        result = agent.run_pipeline()
+
+    assert result["total"] == 1
+    mock_scrape.assert_called_once_with(["old query"])
 
 
 def test_run_opencode_json_strips_markdown_fences():
@@ -314,7 +386,7 @@ def test_run_opencode_raises_when_cli_missing(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "prompt.md").write_text("hello")
-    with patch.object(agent.shutil, "which", return_value=None):
+    with patch("user_data.find_opencode", return_value=None):
         with pytest.raises(RuntimeError, match="opencode CLI not found"):
             agent.run_opencode("prompt.md")
 
@@ -359,7 +431,7 @@ def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):
     out.mkdir()
     monkeypatch.setattr(config, "OUTPUT_DIR", out)
     monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
-    (tmp_path / "resume.md").write_text("I build things.")
+    (tmp_path / "resume.md").write_text('# Experienced engineer with Python and systems work. Remote-friendly, GMT+8 timezone, seeking full-stack roles.\n')
 
     raw_jobs = [{"title": "Dev", "url": "https://example.com", "company": "Test"}]
     (out / "raw_jobs.json").write_text(json.dumps(raw_jobs))
@@ -418,3 +490,61 @@ def test_invalidate_resume_profile_cache(tmp_path, monkeypatch):
     agent.invalidate_resume_profile_cache()
     assert not cache.exists()
     agent.invalidate_resume_profile_cache()  # idempotent
+
+
+def test_discard_run_removes_raw_and_orphans(tmp_path, monkeypatch):
+    import db
+
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.db")
+    db.init_db()
+    run_id = db.start_run()
+    db.insert_raw_jobs(
+        [{"title": "T", "url": "https://ex.com/a", "company": "C", "source": "ex.com"}],
+        run_id,
+    )
+    # Job only from this run, no score yet
+    db.upsert_job({"url": "https://ex.com/a", "title": "T", "company": "C"}, run_id)
+    db.discard_run(run_id)
+    with db.get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM raw_jobs").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0
+        row = conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+        assert row["status"] == "cancelled"
+
+
+def test_run_pipeline_cancel_before_score_discards(tmp_path, monkeypatch):
+    import agent
+    import config
+    import db
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path / "output")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.db")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "resume.md").write_text(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    )
+    db.init_db()
+
+    def _cancel_on_analyze(*_a, **_k):
+        raise RuntimeError("Run cancelled by user")
+
+    with (
+        patch.object(agent, "extract_resume_profile", return_value={}),
+        patch.object(agent, "build_search_config", return_value={"search_queries": ["q"]}),
+        patch.object(
+            agent,
+            "scrape_jobs",
+            return_value=[{"title": "Dev", "url": "https://ex.com/1", "company": "C"}],
+        ),
+        patch.object(agent, "analyze_jobs", side_effect=_cancel_on_analyze),
+    ):
+        with pytest.raises(RuntimeError, match="cancelled"):
+            agent.run_pipeline()
+
+    with db.get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM raw_jobs").fetchone()["c"] == 0
+        row = conn.execute("SELECT status FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+        assert row["status"] == "cancelled"

@@ -12,32 +12,55 @@ alwaysApply: false
 
 When the user asks to **release**, **ship**, **cut a version**, **publish an update**, or **bump for release**, follow [`RELEASE.md`](RELEASE.md). Do not invent a parallel process.
 
+## Default: stay in **dev**
+
+Day-to-day work is **dev**, not release:
+
+- Run / test with `python server.py` (vanilla `ui/`).
+- Land small fixes in code + `[Unreleased]` in `CHANGELOG.md`.
+- **Do not** bump `APP_VERSION`, rebuild Setup, tag, push, or `gh release create` for routine work.
+- Rebuild `dist\LetMeWork.exe` / installer only when the user asks for a local test build (still not a GitHub Release unless they say so).
+
+## Release cadence (batch gate)
+
+Accumulate changelog bullets under `[Unreleased]` before cutting a version:
+
+| Kind of work since last tag | Minimum `[Unreleased]` bullets before release |
+|-----------------------------|-----------------------------------------------|
+| Mixed / small fixes & polish | **≥ 10** |
+| Major (user-visible features, packaging breakage fixes, provider rewrites, etc.) | **≥ 5** |
+
+On a release ask:
+
+1. Count `[Unreleased]` bullets (Added/Changed/Fixed/Removed line items).
+2. If under the gate → **say so**, show the count, and **ask** whether to wait or override.
+3. If at/above the gate (or user overrides) → continue the checklist, but **still ask** before any publish step.
+
 ## Hard rules
 
-1. **Ask for the target version** if they did not give one (e.g. `0.1.0-beta.2`).
-2. **Do not push** or **`gh release create`** unless the user explicitly asked to push/publish.
+1. **Ask for the target version** if they did not give one (e.g. `0.1.0-beta.5`).
+2. **Always ask before** push, annotated tag push, `gh release create`, or uploading installer assets — even if they said “release”. Confirm version + that they want GitHub publish now.
 3. **Do not force-push** tags or rewrite published releases.
 4. Keep **Kurt Chan** credited in release notes (core workflow); credit **Mark Janzen Bandola** for Let Me Work edition.
 5. Stay ponytail: no new release tooling beyond `scripts/bump_version.py` + existing packaging.
 
 ## Checklist (in order)
 
-1. **Read** `CHANGELOG.md`, `user_data.py` (`APP_VERSION`), `RELEASE.md`, `packaging/README.md`.
-2. **Changelog** — fold `[Unreleased]` into `## [VERSION] — YYYY-MM-DD`; refresh compare links at bottom; leave empty Unreleased stubs.
-3. **Bump** — `python scripts/bump_version.py VERSION` (updates `user_data.py`, `pyproject.toml`, `frontend/package.json`, `LetMeWork.iss`).
-4. **Format / verify**
+1. **Gate** — count `[Unreleased]`; apply cadence table; ask if short or before publish.
+2. **Read** `CHANGELOG.md`, `user_data.py` (`APP_VERSION`), `RELEASE.md`, `packaging/README.md`.
+3. **Changelog** — fold `[Unreleased]` into `## [VERSION] — YYYY-MM-DD`; refresh compare links at bottom; leave empty Unreleased stubs.
+4. **Bump** — `python scripts/bump_version.py VERSION` (updates `user_data.py`, `pyproject.toml`, `frontend/package.json`, `LetMeWork.iss`).
+5. **Format / verify**
    - `ruff check .` (fix only if already used / user wants)
    - `pytest`
-   - If frontend changed: `cd frontend && npm run build` and stage `frontend/dist` if tracked
-5. **Commit** (only if user asked to commit): `Release vVERSION` with body pointing at CHANGELOG.
-6. **Push + tag** (only if user asked): annotated tag `vVERSION`, push branch + tag.
-7. **Installer** (only if user asked to build/publish): follow `packaging/README.md` → Setup EXE → SHA-256 → `latest.json`.
-8. **GitHub Release** (only if user asked):
+   - Primary UI is vanilla `ui/` — no React build required for release unless `frontend/` is intentionally shipping again
+6. **Commit** (only if user asked to commit): `Release vVERSION` with body pointing at CHANGELOG.
+7. **Ask** — “Push tag + create GitHub Release with Setup + latest.json now?”
+8. **Only after yes:** push branch, annotated tag `vVERSION`, build installer (`packaging/README.md`), SHA-256 → `latest.json`, `gh release create` with assets.
    - Title: `Let Me Work VERSION`
    - Notes: CHANGELOG section + SmartScreen note + provenance one-liner
-   - Assets: `LetMeWork-Setup-VERSION.exe`, `latest.json`
    - Prefer non-prerelease if app update feed uses `/releases/latest/`
 
 ## After release
 
-Remind user to clear `[Unreleased]` leftovers and that installed apps only see the new build after they update (or reinstall).
+Remind user that installed apps only see the new build after they update (or reinstall), and that further work goes back into `[Unreleased]` / **dev** (`python server.py`).

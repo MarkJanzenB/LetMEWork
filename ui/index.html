@@ -352,9 +352,9 @@
     }
 
     .btn-card--skipped {
-      border-color: var(--led-alert);
-      color: var(--led-alert);
-      background: rgba(255, 88, 88, 0.08);
+      border-color: var(--mecha-gray-light);
+      color: var(--mecha-silver);
+      background: rgba(154, 154, 170, 0.08);
     }
 
     .btn-card--interviewed {
@@ -380,6 +380,80 @@
       color: var(--mecha-muted);
       background: rgba(124, 124, 142, 0.08);
       text-decoration: line-through;
+    }
+
+    .btn-card--offer,
+    .btn-card--withdrawn {
+      border-color: var(--led-propeller);
+      color: var(--led-propeller);
+      background: rgba(88, 200, 255, 0.08);
+    }
+
+    .btn-card--not_reviewed {
+      border-color: var(--mecha-gray-light);
+      color: var(--mecha-muted);
+    }
+
+    .listing-tag {
+      border: 1px solid var(--hairline);
+      color: var(--mecha-muted);
+      border-radius: 999px;
+      padding: 0 0.5rem;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .listing-tag--active { color: var(--led-charging); border-color: var(--led-charging); }
+    .listing-tag--closed,
+    .listing-tag--unavailable,
+    .listing-tag--expired { color: var(--led-alert); border-color: var(--led-alert); }
+    .listing-tag--expiring,
+    .listing-tag--stale { color: var(--led-alert); border-color: var(--led-alert); opacity: 0.8; }
+    .listing-tag--not_accepting { color: var(--led-propeller); border-color: var(--led-propeller); }
+
+    .app-badge {
+      border: 1px solid var(--led-charging);
+      color: var(--led-charging);
+      border-radius: 999px;
+      padding: 0 0.5rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+    }
+
+    .job-app-detail {
+      margin: var(--sp-1) 0 0;
+      font-size: var(--text-2xs);
+      color: var(--mecha-muted);
+    }
+
+    .job-timeline {
+      display: grid;
+      gap: var(--sp-1);
+      padding-top: var(--sp-1);
+    }
+
+    .timeline-row {
+      display: flex;
+      gap: var(--sp-2);
+      align-items: baseline;
+      font-size: var(--text-2xs);
+    }
+
+    .timeline-date { color: var(--mecha-muted); white-space: nowrap; }
+    .timeline-type { color: var(--led-propeller); font-weight: 600; }
+    .timeline-detail { color: var(--mecha-silver); }
+
+    .funnel-group + .funnel-group {
+      margin-top: var(--sp-3);
+    }
+
+    .funnel-group-title {
+      font-size: var(--text-2xs);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--mecha-muted);
+      margin-bottom: var(--sp-1);
     }
 
     /* ── instrument cluster: pipeline + funnel ─────────── */
@@ -585,8 +659,8 @@
     }
 
     .funnel-item:nth-child(2) .funnel-count { color: var(--led-charging); }
-    .funnel-item:nth-child(3) .funnel-count { color: var(--led-alert); }
-    .funnel-item:nth-child(4) .funnel-count { color: var(--led-propeller); }
+    .funnel-item:nth-child(3) .funnel-count { color: var(--led-propeller); }
+    .funnel-item:nth-child(4) .funnel-count { color: var(--led-alert); }
     .funnel-item:nth-child(5) .funnel-count { color: var(--mecha-silver); }
     .funnel-item:nth-child(6) .funnel-count { color: var(--mecha-neon); }
     .funnel-item:nth-child(7) .funnel-count { color: var(--mecha-muted); }
@@ -1532,7 +1606,103 @@
       pointer-events: none;
     }
 
-    /* ── responsive ────────────────────────────────────── */
+    /* ── detail panel ────────────────────────────────────── */
+    .detail-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 100%;
+      max-width: 600px;
+      height: 100vh;
+      background: linear-gradient(145deg, var(--mecha-black-alt), var(--mecha-black));
+      border-left: 1px solid var(--hairline);
+      box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+      z-index: 1200;
+      transition: transform var(--transition-base) var(--ease-out);
+      transform: translateX(100%);
+      display: flex;
+      flex-direction: column;
+    }
+    .detail-panel.open { transform: translateX(0); }
+    .detail-header {
+      padding: var(--sp-5);
+      border-bottom: 1px solid var(--hairline);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .detail-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--sp-5);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-5);
+    }
+    .detail-section {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-2);
+    }
+    .detail-section-title {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--mecha-muted);
+    }
+    .detail-text {
+      font-size: var(--text-sm);
+      color: var(--mecha-silver);
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .detail-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+    .detail-list li {
+      font-size: var(--text-sm);
+      color: var(--mecha-silver);
+      padding-left: var(--sp-2);
+      border-left: 2px solid var(--hairline);
+    }
+    .detail-footer {
+      padding: var(--sp-5);
+      border-top: 1px solid var(--hairline);
+      display: flex;
+      gap: var(--sp-3);
+      flex-wrap: wrap;
+      background: var(--mecha-black-alt);
+    }
+    .detail-footer .btn { flex: 1 1 auto; }
+
+    /* L1/L2 Card Updates */
+    .job-card { cursor: pointer; }
+    .job-card:hover { transform: translateY(-2px); }
+    .job-l2-content {
+      display: none;
+      margin-top: var(--sp-3);
+      padding-top: var(--sp-3);
+      border-top: 1px solid var(--hairline);
+      font-size: var(--text-sm);
+      color: var(--mecha-silver);
+    }
+    .job-card.expanded .job-l2-content { display: block; }
+    .job-l2-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .job-l2-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 5;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
     @media (max-width: 640px) {
       .header { flex-direction: column; align-items: flex-start; }
       .header-actions { width: 100%; flex-direction: column; align-items: stretch; }
@@ -1598,7 +1768,7 @@
         </p>
         <p class="form-label" style="margin-top:var(--sp-4)">Model providers <span style="font-weight:400;color:var(--mecha-silver)">(optional)</span></p>
         <p class="form-hint" style="margin-top:0">
-          Local Ollama needs no key (run <code>ollama serve</code>). Cloud / OpenRouter keys unlock more models; OpenCode free models work without these.
+          OpenRouter / Ollama Cloud keys unlock more models; OpenCode free models work without these.
         </p>
         <label class="form-label" for="wiz-openrouter">OpenRouter API key</label>
         <input id="wiz-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
@@ -1608,7 +1778,7 @@
         <label class="form-label" for="wiz-ollama">Ollama Cloud API key</label>
         <input id="wiz-ollama" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
         <p class="form-hint">
-          For Ollama cloud models (<code>:cloud</code> / ollama.com). Local models still work without this.
+          For cloud models on ollama.com (requires key; no local <code>ollama serve</code>).
           <a id="wiz-ol-link" href="https://ollama.com/settings/keys" target="_blank" rel="noopener">Get Ollama key →</a>
         </p>
         <span id="wiz-oc-status" class="status-pill">Checking OpenCode…</span>
@@ -1670,7 +1840,7 @@
       <p class="form-hint">Used automatically if the primary key hits quota / payment limits (e.g. student plan as backup).</p>
       <p class="form-label" style="margin-top:var(--sp-4)">Model providers <span style="font-weight:400;color:var(--mecha-silver)">(optional)</span></p>
       <p class="form-hint" style="margin-top:0">
-        Configure AI backends beyond OpenCode’s free list. Local Ollama needs no key.
+        Configure AI backends beyond OpenCode’s free list. Ollama uses the Cloud API key only.
       </p>
       <label class="form-label" for="set-openrouter">OpenRouter API key</label>
       <input id="set-openrouter" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
@@ -1678,7 +1848,7 @@
       <label class="form-label" for="set-ollama">Ollama Cloud API key</label>
       <input id="set-ollama" class="form-input" type="password" autocomplete="off" placeholder="Not configured (optional)" />
       <p class="form-hint">
-        For cloud models on ollama.com (local <code>ollama serve</code> still works without a key).
+        For cloud models on ollama.com (no local daemon).
         <a href="https://ollama.com/settings/keys" target="_blank" rel="noopener">How to get an Ollama key</a>
       </p>
       <label class="form-label" for="set-resume">Resume</label>
@@ -1789,34 +1959,83 @@
 
     <!-- Funnel Summary -->
     <div id="funnel-summary" class="pipeline" style="display:none;">
-      <div class="pipeline-steps">
-        <div class="funnel-item" title="Same as Not Started tab">
-          <span id="funnel-none" class="funnel-count">0</span>
-          <span class="funnel-label">Not Started</span>
+      <div class="funnel-group">
+        <div class="funnel-group-title">Actionable Metrics</div>
+        <div class="pipeline-steps">
+          <div class="funnel-item">
+            <span id="funnel-waiting" class="funnel-count">0</span>
+            <span class="funnel-label">Needs Follow-Up</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-expiring" class="funnel-count">0</span>
+            <span class="funnel-label">Expiring Soon</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-stale" class="funnel-count">0</span>
+            <span class="funnel-label">Stall Alert</span>
+          </div>
         </div>
-        <div class="funnel-item" title="Applied only — In progress tab also includes interviewed / rejected / hired">
-          <span id="funnel-applied" class="funnel-count">0</span>
-          <span class="funnel-label">Applied</span>
+      </div>
+      <div class="funnel-group">
+        <div class="funnel-group-title">Application</div>
+        <div class="pipeline-steps">
+          <div class="funnel-item">
+            <span id="funnel-not_reviewed" class="funnel-count">0</span>
+            <span class="funnel-label">Not Reviewed</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-skipped" class="funnel-count">0</span>
+            <span class="funnel-label">Skipped</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-applied" class="funnel-count">0</span>
+            <span class="funnel-label">Applied</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-interviewing" class="funnel-count">0</span>
+            <span class="funnel-label">Interviewing</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-offer" class="funnel-count">0</span>
+            <span class="funnel-label">Offer</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-hired" class="funnel-count">0</span>
+            <span class="funnel-label">Hired</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-rejected" class="funnel-count">0</span>
+            <span class="funnel-label">Rejected</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-withdrawn" class="funnel-count">0</span>
+            <span class="funnel-label">Withdrawn</span>
+          </div>
         </div>
-        <div class="funnel-item" title="Ignored status only — Ignored tab also includes Closed">
-          <span id="funnel-ignored" class="funnel-count">0</span>
-          <span class="funnel-label">Ignored</span>
-        </div>
-        <div class="funnel-item">
-          <span id="funnel-interviewed" class="funnel-count">0</span>
-          <span class="funnel-label">Interviewed</span>
-        </div>
-        <div class="funnel-item">
-          <span id="funnel-rejected" class="funnel-count">0</span>
-          <span class="funnel-label">Rejected</span>
-        </div>
-        <div class="funnel-item">
-          <span id="funnel-hired" class="funnel-count">0</span>
-          <span class="funnel-label">Hired</span>
-        </div>
-        <div class="funnel-item" title="Closed jobs appear under the Ignored tab">
-          <span id="funnel-closed" class="funnel-count">0</span>
-          <span class="funnel-label">Closed</span>
+      </div>
+      <div class="funnel-group">
+        <div class="funnel-group-title">Listing Availability</div>
+        <div class="pipeline-steps">
+          <div class="funnel-item">
+            <span id="funnel-l-active" class="funnel-count">0</span>
+            <span class="funnel-label">Active</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-l-closed" class="funnel-count">0</span>
+            <span class="funnel-label">Closed</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-l-not_accepting" class="funnel-count">0</span>
+            <span class="funnel-label">Not Accepting</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-l-unavailable" class="funnel-count">0</span>
+            <span class="funnel-label">Unavailable</span>
+          </div>
+          <div class="funnel-item">
+            <span id="funnel-l-unknown" class="funnel-count">0</span>
+            <span class="funnel-label">Unknown</span>
+          </div>
         </div>
       </div>
       <p id="funnel-hint" class="form-hint" style="margin:var(--sp-3) 0 0;font-size:var(--text-2xs);"></p>
@@ -1843,23 +2062,41 @@
         <option value="review">Review</option>
         <option value="skip">Skip</option>
       </select>
-      <label class="visually-hidden" for="filter-age">Age</label>
-      <select id="filter-age" onchange="renderJobs()" class="filter-select" aria-label="Filter by age">
-        <option value="all">Any age</option>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-        <option value="90">Last 90 days</option>
+      <label class="visually-hidden" for="filter-listing">Listing availability</label>
+      <select id="filter-listing" onchange="renderJobs()" class="filter-select" aria-label="Filter by listing availability">
+        <option value="all">Any listing</option>
+        <option value="active">Active</option>
+        <option value="stale">Stale</option>
+        <option value="expiring">Expiring</option>
+        <option value="expired">Expired</option>
+        <option value="closed">Closed</option>
+        <option value="not_accepting">Not Accepting</option>
+        <option value="unavailable">Unavailable</option>
+        <option value="unknown">Unknown</option>
+      </select>
+      <label class="visually-hidden" for="filter-source">Source</label>
+      <select id="filter-source" onchange="renderJobs()" class="filter-select" aria-label="Filter by source">
+        <option value="all">All sources</option>
+      </select>
+      <label class="visually-hidden" for="filter-age">Discovered</label>
+      <select id="filter-age" onchange="renderJobs()" class="filter-select" aria-label="Filter by discovery date">
+        <option value="all">Any time</option>
+        <option value="7">Discovered: last 7 days</option>
+        <option value="30">Discovered: last 30 days</option>
+        <option value="90">Discovered: last 90 days</option>
       </select>
       <label class="visually-hidden" for="sort-by">Sort</label>
       <select id="sort-by" onchange="renderJobs()" class="filter-select" aria-label="Sort jobs">
-        <option value="recent">Recently Updated</option>
+        <option value="recent">Recently Discovered</option>
+        <option value="updated">Recently Updated</option>
+        <option value="deadline">Deadline</option>
         <option value="score-desc">Score: High → Low</option>
         <option value="score-asc">Score: Low → High</option>
         <option value="company-asc">Company: A → Z</option>
       </select>
       <label class="filter-check">
         <input type="checkbox" id="hide-skips" onchange="onHideSkipsChange()" checked>
-        Hide skips
+        Hide skip verdicts
       </label>
       <button type="button" class="btn btn-ghost btn-sm" onclick="archiveVisibleSkips()">Archive skips</button>
       <span id="job-count" class="filter-count"></span>
@@ -1873,13 +2110,13 @@
       <span id="selection-count" class="filter-count">0 selected</span>
       <select id="bulk-status" class="status-dropdown" onchange="bulkSetStatus(this.value)" disabled>
         <option value="">Set status…</option>
-        <option value="none">Not Started</option>
+        <option value="not_reviewed">Not Reviewed</option>
         <option value="applied">Applied ✓</option>
-        <option value="ignored">Ignored</option>
-        <option value="interviewed">Interviewed</option>
-        <option value="rejected">Rejected</option>
+        <option value="interviewing">Interviewing</option>
+        <option value="offer">Offer</option>
         <option value="hired">Hired 🎉</option>
-        <option value="closed">Closed / Expired</option>
+        <option value="withdrawn">Withdrawn</option>
+        <!-- skipped/rejected need a reason — use per-card dropdown -->
       </select>
       <button type="button" class="btn btn-ghost btn-sm" id="bulk-open-btn" onclick="bulkOpenSelected()" disabled>Open tabs</button>
       <button type="button" class="btn btn-secondary btn-sm" id="bulk-delete-btn" onclick="bulkSoftDelete()" disabled>Delete selected</button>
@@ -1887,20 +2124,20 @@
     </div>
 
     <!-- Status Tabs -->
-    <div class="status-tabs" role="tablist" aria-label="Job status">
-      <button type="button" role="tab" class="status-tab active" data-tab="none" id="tab-none"
-              aria-selected="true" aria-controls="jobs-list" tabindex="0" onclick="setTab('none')">
-        Not Started <span class="tab-count" id="tab-count-none">0</span>
+    <div class="status-tabs" role="tablist" aria-label="Application status">
+      <button type="button" role="tab" class="status-tab active" data-tab="triage" id="tab-triage"
+              aria-selected="true" aria-controls="jobs-list" tabindex="0" onclick="setTab('triage')">
+        Triage <span class="tab-count" id="tab-count-triage">0</span>
       </button>
-      <button type="button" role="tab" class="status-tab" data-tab="applied" id="tab-applied"
-              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('applied')"
-        title="Applied + Interviewed + Rejected + Hired">
-        In progress <span class="tab-count" id="tab-count-applied">0</span>
+      <button type="button" role="tab" class="status-tab" data-tab="active" id="tab-active"
+              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('active')"
+        title="Applied + Interviewing + Offer">
+        Active <span class="tab-count" id="tab-count-active">0</span>
       </button>
-      <button type="button" role="tab" class="status-tab" data-tab="ignored" id="tab-ignored"
-              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('ignored')"
-        title="Ignored + Closed / Expired">
-        Ignored <span class="tab-count" id="tab-count-ignored">0</span>
+      <button type="button" role="tab" class="status-tab" data-tab="resolved" id="tab-resolved"
+              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('resolved')"
+        title="Hired + Rejected + Withdrawn + Skipped">
+        Resolved <span class="tab-count" id="tab-count-resolved">0</span>
       </button>
     </div>
 
@@ -1929,7 +2166,58 @@
       </div>
     </div>
 
-    <!-- Footer -->
+    <!-- Skip / Reject Reason Modal -->
+    <div id="reason-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeReasonModal()">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Application reason" tabindex="-1">
+        <div class="modal-header">
+          <h2 class="modal-title" id="reason-title">Mark Skipped</h2>
+          <div class="modal-actions">
+            <button type="button" onclick="closeReasonModal()" class="modal-close" aria-label="Close">&times;</button>
+          </div>
+        </div>
+        <div class="modal-content" style="display:block;">
+          <label for="reason-select" class="form-hint" style="display:block;margin-bottom:var(--sp-1);">Reason</label>
+          <select id="reason-select" class="filter-select" style="width:100%;margin-bottom:var(--sp-3);"></select>
+          <label for="reason-note" class="form-hint" style="display:block;margin-bottom:var(--sp-1);">Note (optional)</label>
+          <textarea id="reason-note" rows="3" style="width:100%;resize:vertical;"></textarea>
+        </div>
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:var(--sp-2);padding:var(--sp-3);">
+          <button type="button" onclick="closeReasonModal()" class="btn btn-ghost btn-sm">Cancel</button>
+          <button type="button" id="reason-save-btn" onclick="confirmReason()" class="btn btn-secondary btn-sm">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run complete summary -->
+    <div id="run-complete-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeRunCompleteModal()">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="run-complete-title" tabindex="-1">
+        <div class="modal-header">
+          <h2 class="modal-title" id="run-complete-title">Run complete</h2>
+          <div class="modal-actions">
+            <button type="button" onclick="closeRunCompleteModal()" class="modal-close" aria-label="Close">&times;</button>
+          </div>
+        </div>
+        <div class="modal-content" style="display:block;" id="run-complete-body"></div>
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:var(--sp-2);padding:var(--sp-3);">
+          <button type="button" onclick="closeRunCompleteModal()" class="btn btn-primary btn-sm">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div id="detail-panel" class="detail-panel" aria-hidden="true">
+      <div class="detail-header">
+        <h2 id="detail-title" class="job-title" style="font-size: var(--text-md)">Job Details</h2>
+        <button type="button" class="modal-close" onclick="closeDetailPanel()" aria-label="Close">&times;</button>
+      </div>
+      <div class="detail-content" id="detail-content">
+        <!-- Content injected by JS -->
+      </div>
+      <div class="detail-footer" id="detail-footer">
+        <!-- Actions injected by JS -->
+      </div>
+    </div>
+
     <footer class="footer">
       <p class="footer-text">
         Built on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">AI Job Hunt Agent</a>
@@ -1947,16 +2235,49 @@
 
   <script>
     let allJobs = [];
-    let currentTab = 'none';
+    let currentTab = 'triage';
     const selectedUrls = new Set();
     let visibleJobUrls = [];
     const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    // post-application stages live in the In progress tab; anything unknown is Not Started
-    const TAB_OF = { none: 'none', applied: 'applied', ignored: 'ignored',
-                     interviewed: 'applied', rejected: 'applied', hired: 'applied',
-                     closed: 'ignored' };
-    const tabOf = j => TAB_OF[j.status || 'none'] || 'none';
+    // Two independent state machines: LISTING (system/scraper) + APPLICATION (user).
+    const APP_LABELS = {
+      not_reviewed: 'Not Reviewed', skipped: 'Skipped', applied: 'Applied',
+      interviewing: 'Interviewing', offer: 'Offer', hired: 'Hired',
+      rejected: 'Rejected', withdrawn: 'Withdrawn',
+    };
+    const LISTING_LABELS = {
+      active: 'Active', closed: 'Closed', not_accepting: 'Not Accepting',
+      unavailable: 'Unavailable', unknown: 'Unknown',
+      stale: 'Stale', expiring: 'Expiring', expired: 'Expired',
+    };
+    const EVENT_LABELS = {
+      applied: 'Applied', follow_up: 'Follow-up', recruiter_contact: 'Recruiter Contact',
+      assessment: 'Assessment', interview: 'Interview', offer: 'Offer', hired: 'Hired',
+      withdrawn: 'Withdrawn', rejected: 'Rejected', other: 'Update',
+    };
+    const SKIP_REASONS = ['location', 'experience', 'skills', 'compensation', 'employment_type', 'schedule', 'company', 'duplicate', 'low_match', 'other'];
+    const REJECTION_REASONS = ['experience', 'skills', 'location', 'compensation', 'position_filled', 'candidate_pool', 'internal_candidate', 'other', 'unknown'];
+    const REASON_LABELS = {
+      location: 'Location', experience: 'Experience', skills: 'Skills',
+      compensation: 'Compensation', employment_type: 'Employment Type',
+      schedule: 'Schedule', company: 'Company', duplicate: 'Duplicate',
+      low_match: 'Low Match', other: 'Other', position_filled: 'Position Filled',
+      candidate_pool: 'Candidate Pool', internal_candidate: 'Internal Candidate',
+      unknown: 'Unknown',
+    };
+    const APP_COUNT_KEYS = ['not_reviewed', 'skipped', 'applied', 'interviewing', 'offer', 'hired', 'rejected', 'withdrawn'];
+    const LISTING_COUNT_KEYS = ['active', 'closed', 'not_accepting', 'unavailable', 'unknown'];
+
+    const TABS = [
+      { key: 'triage',   label: 'Triage',   filter: j => (j.application_status || 'not_reviewed') === 'not_reviewed' || j.is_saved === true },
+      { key: 'active',   label: 'Active',   filter: j => ['applied', 'interviewing', 'offer'].includes(j.application_status) },
+      { key: 'resolved', label: 'Resolved', filter: j => ['rejected', 'withdrawn', 'skipped', 'hired'].includes(j.application_status) },
+    ];
+    const tabOf = j => {
+      const tab = TABS.find(t => t.filter(j));
+      return tab ? tab.key : 'triage';
+    };
 
     function setLastRunLabel(last) {
       const el = document.getElementById('last-run');
@@ -2058,8 +2379,8 @@
           if (!res.ok) continue;
           const job = allJobs.find(j => j.url === url);
           if (job) {
-            job.status = status;
-            job.updated_at = new Date().toISOString();
+            job.application_status = status;
+            job.application_updated_at = new Date().toISOString();
           }
           ok++;
         } catch { /* continue */ }
@@ -2068,7 +2389,7 @@
       updateTabCounts();
       renderJobs();
       updateFunnelSummary();
-      const label = status === 'none' ? 'Not Started' : statusLabel(status);
+      const label = statusLabel(status);
       showToast(`Updated ${ok} job${ok === 1 ? '' : 's'} → ${label}`);
     }
 
@@ -2090,14 +2411,14 @@
         a.remove();
         opened++;
         const job = allJobs.find(j => j.url === u);
-        if (job && !job.viewed_at) {
-          // fire-and-forget viewed mark
-          fetch('/api/viewed', {
+        if (job) {
+          // fire-and-forget: only POST /api/open records last_opened_at
+          fetch('/api/open', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: u, status: 'none' })
+            body: JSON.stringify({ url: u })
           }).catch(() => {});
-          job.viewed_at = new Date().toISOString();
+          job.last_opened_at = new Date().toISOString();
         }
       }
       showToast(`Opened ${opened} tab${opened === 1 ? '' : 's'}. Allow popups if some were blocked.`);
@@ -2117,24 +2438,25 @@
 
     async function archiveVisibleSkips() {
       const skips = allJobs.filter(j =>
-        tabOf(j) === currentTab && (j.verdict || '') === 'skip' && (j.status || 'none') === 'none'
+        tabOf(j) === currentTab && (j.verdict || '') === 'skip' &&
+        (j.application_status || 'not_reviewed') === 'not_reviewed'
       );
       if (!skips.length) {
         showToast('No skip-verdict jobs to archive in this tab.');
         return;
       }
-      if (!confirm(`Archive ${skips.length} skip job${skips.length === 1 ? '' : 's'} as Ignored?`)) return;
+      if (!confirm(`Archive ${skips.length} skip job${skips.length === 1 ? '' : 's'} as Skipped?`)) return;
       let ok = 0;
       for (const j of skips) {
         try {
           const res = await fetch('/api/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: j.url, status: 'ignored' })
+            body: JSON.stringify({ url: j.url, status: 'skipped' })
           });
           if (res.ok) {
-            j.status = 'ignored';
-            j.updated_at = new Date().toISOString();
+            j.application_status = 'skipped';
+            j.application_updated_at = new Date().toISOString();
             ok++;
           }
         } catch { /* continue */ }
@@ -2142,7 +2464,7 @@
       updateTabCounts();
       renderJobs();
       updateFunnelSummary();
-      showToast(`Archived ${ok} skip job${ok === 1 ? '' : 's'} as Ignored.`);
+      showToast(`Archived ${ok} skip job${ok === 1 ? '' : 's'} as Skipped.`);
     }
 
     async function softDeleteJob(url, { undoToast = true, skipConfirm = false } = {}) {
@@ -2161,6 +2483,8 @@
         if (!res.ok) throw new Error('server error');
         allJobs = allJobs.filter(j => j.url !== url);
         selectedUrls.delete(url);
+        const detailFooter = document.getElementById('detail-footer');
+        if (detailFooter?.dataset.url === url) closeDetailPanel();
         updateTabCounts();
         renderJobs();
         updateFunnelSummary();
@@ -2314,28 +2638,30 @@
     }
 
     function updateTabCounts() {
-      const counts = { none: 0, applied: 0, ignored: 0 };
+      const counts = { triage: 0, active: 0, resolved: 0 };
       allJobs.forEach(j => counts[tabOf(j)]++);
-      document.getElementById('tab-count-none').textContent = counts.none;
-      document.getElementById('tab-count-applied').textContent = counts.applied;
-      document.getElementById('tab-count-ignored').textContent = counts.ignored;
+      TABS.forEach(t => {
+        const el = document.getElementById(`tab-count-${t.key}`);
+        if (el) el.textContent = counts[t.key] || 0;
+      });
     }
 
     function statusCountsFromJobs() {
-      const counts = {
-        none: 0, applied: 0, ignored: 0, interviewed: 0,
-        rejected: 0, hired: 0, closed: 0,
-      };
+      const app = {};
+      APP_COUNT_KEYS.forEach(k => { app[k] = 0; });
+      const listing = {};
+      LISTING_COUNT_KEYS.forEach(k => { listing[k] = 0; });
       allJobs.forEach(j => {
-        const s = j.status || 'none';
-        if (s in counts) counts[s]++;
-        else counts.none++;
+        const s = j.application_status || 'not_reviewed';
+        if (s in app) app[s]++; else app.not_reviewed++;
+        const ls = j.listing_status || 'unknown';
+        if (ls in listing) listing[ls]++; else listing.unknown++;
       });
-      return counts;
+      return { app, listing };
     }
 
     function updateFunnelSummary() {
-      const counts = statusCountsFromJobs();
+      const { app, listing } = statusCountsFromJobs();
       const total = allJobs.length;
       const funnel = document.getElementById('funnel-summary');
       if (!total) {
@@ -2343,19 +2669,28 @@
         return;
       }
       funnel.style.display = '';
-      document.getElementById('funnel-none').textContent = counts.none;
-      document.getElementById('funnel-applied').textContent = counts.applied;
-      document.getElementById('funnel-ignored').textContent = counts.ignored;
-      document.getElementById('funnel-interviewed').textContent = counts.interviewed;
-      document.getElementById('funnel-rejected').textContent = counts.rejected;
-      document.getElementById('funnel-hired').textContent = counts.hired;
-      document.getElementById('funnel-closed').textContent = counts.closed;
-      const inProg = counts.applied + counts.interviewed + counts.rejected + counts.hired;
-      const ignoredTab = counts.ignored + counts.closed;
+      APP_COUNT_KEYS.forEach(k => {
+        const el = document.getElementById(`funnel-${k}`);
+        if (el) el.textContent = app[k];
+      });
+      LISTING_COUNT_KEYS.forEach(k => {
+        const el = document.getElementById(`funnel-l-${k}`);
+        if (el) el.textContent = listing[k];
+      });
+      
+      // Actionable Metrics (API emits signal_* from get_jobs_for_api)
+      document.getElementById('funnel-waiting').textContent =
+        allJobs.filter(j => j.signal_waiting === true).length;
+      document.getElementById('funnel-expiring').textContent =
+        allJobs.filter(j => j.signal_expiring === true).length;
+      document.getElementById('funnel-stale').textContent =
+        allJobs.filter(j => j.signal_stale === true).length;
+
       const hint = document.getElementById('funnel-hint');
       if (hint) {
+        const closed = listing.closed + listing.not_accepting + listing.unavailable;
         hint.textContent =
-          `${total} listings · tabs: Not Started ${counts.none} · In progress ${inProg} · Ignored ${ignoredTab}`;
+          `${total} listings · listing: ${listing.active} active · ${closed} closed / unavailable`;
       }
     }
 
@@ -2394,28 +2729,61 @@
 
     function statusCls(s) {
       if (s === 'applied') return 'btn-card--applied';
-      if (s === 'ignored') return 'btn-card--skipped';
-      if (s === 'interviewed') return 'btn-card--interviewed';
+      if (s === 'skipped') return 'btn-card--skipped';
+      if (s === 'interviewing') return 'btn-card--interviewed';
+      if (s === 'offer' || s === 'withdrawn') return 'btn-card--offer';
       if (s === 'rejected') return 'btn-card--rejected';
       if (s === 'hired') return 'btn-card--hired';
-      if (s === 'closed') return 'btn-card--closed';
+      if (s === 'not_reviewed') return 'btn-card--not_reviewed';
       return '';
     }
 
     function statusLabel(s) {
       if (s === 'applied') return 'Applied ✓';
-      if (s === 'ignored') return 'Ignored';
-      if (s === 'interviewed') return 'Interviewed';
-      if (s === 'rejected') return 'Rejected';
       if (s === 'hired') return 'Hired 🎉';
-      if (s === 'closed') return 'Closed / Expired';
-      return 'Mark Status';
+      return APP_LABELS[s] || 'Mark Status';
     }
 
-    function nextStatus(s) {
-      const statuses = ['none', 'applied', 'ignored', 'interviewed', 'rejected', 'hired', 'closed'];
-      const current = statuses.indexOf(s || 'none');
-      return statuses[(current + 1) % statuses.length];
+    function listingLabel(s) { return LISTING_LABELS[s] || s || 'Unknown'; }
+
+    function listingCls(s) {
+      if (s === 'active') return 'listing-tag--active';
+      if (s === 'closed' || s === 'unavailable' || s === 'expired') return 'listing-tag--closed';
+      if (s === 'expiring' || s === 'stale') return 'listing-tag--expiring';
+      if (s === 'not_accepting') return 'listing-tag--not_accepting';
+      return '';
+    }
+
+    function shortDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d.toLocaleDateString() : String(iso).slice(0, 10);
+    }
+
+    function loadTimeline(box) {
+      if (!box) return;
+      const url = box.dataset.url || cardUrlFrom(box);
+      if (!url) return;
+      if (box.dataset.loaded === '1') return;
+      box.dataset.loaded = '1';
+      fetch(`/api/timeline?url=${encodeURIComponent(url)}`)
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error('timeline failed'))))
+        .then(data => {
+          const events = data.events || [];
+          if (!events.length) {
+            box.innerHTML = '<span class="form-hint">No application history yet.</span>';
+            return;
+          }
+          box.innerHTML = events.map(ev =>
+            `<div class="timeline-row">
+              <span class="timeline-date">${esc(shortDate(ev.occurred_at))}</span>
+              <span class="timeline-type">${esc(EVENT_LABELS[ev.event_type] || ev.event_type)}</span>
+              ${ev.detail ? `<span class="timeline-detail">— ${esc(ev.detail)}</span>` : ''}
+            </div>`).join('');
+        })
+        .catch(() => {
+          box.innerHTML = '<span class="form-hint">Could not load timeline.</span>';
+        });
     }
 
     function collapse(label, items) {
@@ -2523,6 +2891,30 @@
       btn.innerHTML = `<span class="spinning" aria-hidden="true">↻</span>${esc(label)}`;
     }
 
+    function showRunCompleteModal({ total, above, neu, updated }) {
+      const body = document.getElementById('run-complete-body');
+      const modal = document.getElementById('run-complete-modal');
+      if (!body || !modal) {
+        showSuccess(`Run complete — ${total} jobs, ${above} above threshold`);
+        return;
+      }
+      body.innerHTML = `
+        <p style="margin:0 0 var(--sp-3);">${esc(String(total))} scored ·
+          <strong>${esc(String(neu))}</strong> new ·
+          <strong>${esc(String(updated))}</strong> updated ·
+          <strong>${esc(String(above))}</strong> above threshold</p>
+        <p class="form-hint" style="margin:0;">Cover letters stay on-demand from each job card.</p>`;
+      modal.style.display = '';
+      document.body.style.overflow = 'hidden';
+      modal.querySelector('.modal-panel')?.focus();
+    }
+
+    function closeRunCompleteModal() {
+      const modal = document.getElementById('run-complete-modal');
+      if (modal) modal.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+
     async function runAgent() {
       try {
         const st = await fetch('/api/run-status').then(r => r.json());
@@ -2576,9 +2968,20 @@
           for (let i = 0; i <= 4; i++) {
             if (document.getElementById(`s${i}-icon`).textContent === '↻') setStep(i, 'error');
           }
-          setProgressLive(ev.message || 'Pipeline error', 'error');
+          const msg = ev.message || 'Pipeline error';
+          setProgressLive(msg, 'error');
           reset(btn, prog, { keepVisible: true });
-          showError(`Pipeline error: ${ev.message}`);
+          if (/cancelled/i.test(msg)) {
+            showToast(
+              /kept/i.test(msg)
+                ? 'Run cancelled — scored jobs were kept.'
+                : 'Run cancelled — partial scrape discarded.',
+              { duration: 5000 }
+            );
+          } else {
+            showError(`Pipeline error: ${msg}`);
+          }
+          loadJobs();
           return;
         }
         if (ev.step === 'complete') {
@@ -2586,16 +2989,20 @@
           fill.classList.remove('indeterminate');
           fill.style.width = '100%';
           fill.style.transform = 'scaleX(1)';
+          const total = ev.total ?? 0;
+          const above = ev.above_threshold ?? 0;
+          const neu = ev.new ?? 0;
+          const updated = ev.updated ?? 0;
           setProgressLive(
-            `Done — ${ev.total} jobs, ${ev.above_threshold} above threshold`,
+            `Done — ${total} jobs, ${above} above threshold`,
             'done'
           );
-          playChime();
+          if (!REDUCED_MOTION.matches) playChime();
           const ts = new Date().toLocaleString();
           localStorage.setItem('lastRun', ts);
           document.getElementById('last-run').textContent =
-            `Last run: ${ts} — ${ev.total} jobs, ${ev.above_threshold} above threshold`;
-          showSuccess(`Run complete — found ${ev.total} jobs, ${ev.above_threshold} above threshold (score ≥ 70)`);
+            `Last run: ${ts} — ${total} jobs, ${above} above threshold`;
+          showRunCompleteModal({ total, above, neu, updated });
           loadJobs();
           reset(btn, prog, { keepVisible: true, hideAfterMs: 4000 });
           return;
@@ -2632,7 +3039,11 @@
     }
 
     async function cancelRun() {
-      if (!confirm('Cancel the active run? This run will stop.')) return;
+      if (!confirm(
+        'Cancel the active run?\n\n' +
+        '• Before scoring finishes: this run’s scrape is discarded.\n' +
+        '• After scoring: jobs already saved are kept.'
+      )) return;
       const cancelBtn = document.getElementById('cancel-run-btn');
       if (cancelBtn) {
         cancelBtn.disabled = true;
@@ -2719,19 +3130,20 @@
       }
     }
 
-    /* ── mark viewed ────────────────────────────────────── */
-    async function markJobViewed(url) {
+    /* ── open listing ───────────────────────────────────── */
+    async function openListing(url) {
+      const job = allJobs.find(j => j.url === url);
+      if (job) job.last_opened_at = new Date().toISOString();
+      renderJobs();
       try {
-        await fetch('/api/viewed', {
+        // POST /api/open is the ONLY thing that records last_opened_at
+        await fetch('/api/open', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, status: 'none' })
+          body: JSON.stringify({ url })
         });
-        const job = allJobs.find(j => j.url === url);
-        if (job) job.viewed_at = new Date().toISOString();
-        renderJobs();
       } catch (e) {
-        console.error('Failed to mark viewed', e);
+        console.error('Failed to record listing open', e);
       }
     }
 
@@ -2755,6 +3167,7 @@
         const res = await fetch('/api/jobs');
         allJobs = await res.json();
         jobsLoadedOnce = true;
+        populateSourceFilter();
         updateTabCounts();
         renderJobs();
         updateFunnelSummary();
@@ -2780,7 +3193,13 @@
 
     function applySort(list, sort) {
       const jobs = [...list];
-      if (sort === 'recent') jobs.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
+      const cmp = (a, b, key) => (b[key] ?? '').localeCompare(a[key] ?? '');
+      if (sort === 'recent') jobs.sort((a, b) => cmp(a, b, 'discovered_at'));
+      else if (sort === 'updated') jobs.sort((a, b) => cmp(a, b, 'application_updated_at'));
+      else if (sort === 'deadline') jobs.sort((a, b) => {
+        const da = a.deadline_at || '9999-12-31', db = b.deadline_at || '9999-12-31';
+        return da.localeCompare(db);
+      });
       else if (sort === 'score-desc') jobs.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       else if (sort === 'score-asc') jobs.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
       else jobs.sort((a, b) => (a.company ?? '').localeCompare(b.company ?? ''));
@@ -2793,66 +3212,224 @@
       const href = safeUrl ? esc(safeUrl) : '#';
       const label = `${job.title || 'Job'}${job.company ? ' at ' + job.company : ''}`.trim();
       const name = esc(label);
+      const appStatus = job.application_status || 'not_reviewed';
+      const effListing = job.effective_listing_status || job.listing_status || 'unknown';
+      const appReason = job.application_reason
+        ? ` · Reason: ${REASON_LABELS[job.application_reason] || job.application_reason}` : '';
+      const appNote = job.application_note
+        ? ` · Note: ${esc(job.application_note)}` : '';
+      const reasonNote = (appReason || appNote)
+        ? `<p class="job-app-detail">${appReason}${appNote}</p>` : '';
+      const compound = job.display_label && job.display_label !== APP_LABELS[appStatus];
+      
+      const topMatches = (job.match_reasons || []).slice(0, 2);
+      const topFlags = (job.red_flags || []).slice(0, 2);
+
       return `
-      <div class="job-card ${verdictClass(job.verdict)} ${!job.viewed_at ? 'job-new' : ''}"
-           data-url="${esc(rawUrl)}" style="--i: ${Math.min(i, 10)};">
+      <div class="job-card ${verdictClass(job.verdict)} ${!job.last_opened_at ? 'job-new' : ''}"
+           data-url="${esc(rawUrl)}" style="--i: ${Math.min(i, 10)};" onclick="toggleJobExpand(this)">
         <div class="job-head">
           <input type="checkbox" class="job-select"
                  ${selectedUrls.has(job.url) ? 'checked' : ''}
                  data-action="select"
-                 aria-label="Select ${name}">
+                 aria-label="Select ${name}"
+                 onclick="event.stopPropagation()">
           <div class="job-body">
             <div class="job-meta">
               <span class="score-badge ${scoreCls(job.score)}">
                 ${esc(job.score ?? '?')}
               </span>
               ${job.work_arrangement ? `<span class="arrangement-badge ${arrangementCls(job.work_arrangement)}">${esc(arrangementLabel(job.work_arrangement))}</span>` : ''}
-              ${job.source ? `<span class="source-tag">${esc(job.source)}</span>` : ''}
-              ${!job.viewed_at ? '<span class="new-badge">NEW</span>' : ''}
+              <span class="listing-tag ${listingCls(effListing)}">${esc(listingLabel(effListing))}</span>
+              ${compound ? `<span class="app-badge">${esc(job.display_label)}</span>` : ''}
+              ${!job.last_opened_at ? '<span class="new-badge">NEW</span>' : ''}
               <span class="verdict-tag">${esc(job.verdict ?? '')}</span>
             </div>
             <h3 class="job-title">${esc(job.title ?? '')}</h3>
             <p class="job-company">
               ${esc(job.company ?? '')}${job.location ? '<span class="sep">·</span>' + esc(job.location) : ''}
             </p>
+            ${reasonNote}
           </div>
         </div>
-        ${collapse('Match Reasons', job.match_reasons)}
-        ${collapse('Red Flags', job.red_flags)}
-        ${job.suggested_angle ? `
-          <details class="job-details">
-            <summary>Suggested Angle</summary>
-            <p>${esc(job.suggested_angle)}</p>
-          </details>` : ''}
-        <div class="job-actions">
+        <div class="job-l2-content">
+          <div class="job-l2-grid">
+            <div class="detail-section">
+              <div class="detail-section-title">Matches</div>
+              <ul class="detail-list">${topMatches.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+            </div>
+            <div class="detail-section">
+              <div class="detail-section-title">Red Flags</div>
+              <ul class="detail-list">${topFlags.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; align-items:center;">
+            <button type="button" class="btn btn-ghost btn-sm" data-action="details" style="font-weight:700; color:var(--mecha-neon);">Details →</button>
+          </div>
+        </div>
+        <div class="job-actions" style="margin-top:var(--sp-3); padding-top:var(--sp-3); border-top:1px solid var(--hairline); display:flex; gap:var(--sp-2); flex-wrap:wrap; align-items:center;" onclick="event.stopPropagation()">
           <a href="${href}" target="_blank" rel="noopener noreferrer"
              class="btn-card btn-card--primary"
-             data-action="open" aria-label="Open ${name}"${safeUrl ? '' : ' aria-disabled="true"'}>
-            Open Job ↗
+             data-action="open" aria-label="Open listing ${name}"${safeUrl ? '' : ' aria-disabled="true"'}>
+            Open ↗
           </a>
           <button type="button" data-action="cl"
             class="btn-card ${job.has_cover_letter ? 'btn-card--primary' : ''}"
             aria-label="${job.has_cover_letter ? 'Cover letter' : 'Generate cover letter'} for ${name}">
-            ${job.has_cover_letter ? 'Cover Letter' : 'Generate CL'}
+            ${job.has_cover_letter ? 'CL' : 'Gen CL'}
+          </button>
+          <button type="button" data-action="save"
+            class="btn-card ${job.is_saved ? 'btn-card--primary' : ''}"
+            aria-label="${job.is_saved ? 'Unsave' : 'Save'} ${name}">
+            ${job.is_saved ? 'Saved' : 'Save'}
           </button>
           <button type="button" data-action="delete"
-            class="btn-card" title="Soft-delete — skipped on future scrapes"
+            class="btn-card" title="Soft-delete"
             aria-label="Delete ${name}">
-            Delete
+            Del
           </button>
-          <span class="spacer"></span>
-          <select class="status-dropdown ${statusCls(job.status)}" data-action="status"
-                  aria-label="Status for ${name}">
-            <option value="none" ${(job.status || 'none') === 'none' ? 'selected' : ''}>Not Started</option>
-            <option value="applied" ${job.status === 'applied' ? 'selected' : ''}>Applied ✓</option>
-            <option value="ignored" ${job.status === 'ignored' ? 'selected' : ''}>Ignored</option>
-            <option value="interviewed" ${job.status === 'interviewed' ? 'selected' : ''}>Interviewed</option>
-            <option value="rejected" ${job.status === 'rejected' ? 'selected' : ''}>Rejected</option>
-            <option value="hired" ${job.status === 'hired' ? 'selected' : ''}>Hired 🎉</option>
-            <option value="closed" ${job.status === 'closed' ? 'selected' : ''}>Closed / Expired</option>
+          <span class="spacer" style="flex:1"></span>
+          <select class="status-dropdown ${statusCls(appStatus)}" data-action="status"
+                  aria-label="Application status for ${name}">
+            <option value="not_reviewed" ${appStatus === 'not_reviewed' ? 'selected' : ''}>Not Reviewed</option>
+            <option value="skipped" ${appStatus === 'skipped' ? 'selected' : ''}>Skipped</option>
+            <option value="applied" ${appStatus === 'applied' ? 'selected' : ''}>Applied ✓</option>
+            <option value="interviewing" ${appStatus === 'interviewing' ? 'selected' : ''}>Interviewing</option>
+            <option value="offer" ${appStatus === 'offer' ? 'selected' : ''}>Offer</option>
+            <option value="hired" ${appStatus === 'hired' ? 'selected' : ''}>Hired 🎉</option>
+            <option value="rejected" ${appStatus === 'rejected' ? 'selected' : ''}>Rejected</option>
+            <option value="withdrawn" ${appStatus === 'withdrawn' ? 'selected' : ''}>Withdrawn</option>
           </select>
         </div>
       </div>`;
+    }
+
+    function toggleJobExpand(el) {
+      el.classList.toggle('expanded');
+    }
+
+    function openDetailPanel(url) {
+      const job = allJobs.find(j => j.url === url);
+      if (!job) return;
+      
+      const panel = document.getElementById('detail-panel');
+      const title = document.getElementById('detail-title');
+      const content = document.getElementById('detail-content');
+      const footer = document.getElementById('detail-footer');
+      
+      title.textContent = job.title || 'Job Details';
+      
+      content.innerHTML = `
+        <div class="detail-section">
+          <div class="detail-section-title">AI Verdict</div>
+          <div class="detail-text" style="font-weight:600; color:var(--mecha-neon)">${esc(job.verdict || 'No verdict')}</div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Match Reasons</div>
+          <ul class="detail-list">${(job.match_reasons || []).map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Red Flags</div>
+          <ul class="detail-list">${(job.red_flags || []).map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Suggested Angle</div>
+          <div class="detail-text">${esc(job.suggested_angle || 'No suggestion')}</div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Job Description</div>
+          <div class="detail-text" style="font-size:var(--text-sm)">${esc(job.description || 'No description available')}</div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Metadata</div>
+          <div class="detail-text" style="font-family:var(--font-mono); font-size:var(--text-xs)">
+            Source: ${esc(job.source)}<br>
+            Discovered: ${esc(shortDate(job.discovered_at))}<br>
+            Listing: ${esc(job.listing_status)}
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Application History</div>
+          <div class="job-timeline" data-url="${esc(job.url || '')}"><span class="form-hint">Loading…</span></div>
+        </div>
+      `;
+      
+      const appStatus = job.application_status || 'not_reviewed';
+      const safeHref = dbIsSafeHttpUrl(job.url) ? esc(job.url) : '#';
+      footer.innerHTML = `
+        <a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="btn btn-primary"
+           data-detail-action="open"${safeHref === '#' ? ' aria-disabled="true"' : ''}>Open Listing ↗</a>
+        <button type="button" class="btn btn-secondary" data-detail-action="cl">Cover Letter</button>
+        <button type="button" class="btn btn-secondary" data-detail-action="save">${job.is_saved ? 'Unsave' : 'Save'}</button>
+        <select class="status-dropdown ${statusCls(appStatus)}" data-detail-action="status"
+                aria-label="Application status">
+          <option value="not_reviewed" ${appStatus === 'not_reviewed' ? 'selected' : ''}>Not Reviewed</option>
+          <option value="skipped" ${appStatus === 'skipped' ? 'selected' : ''}>Skipped</option>
+          <option value="applied" ${appStatus === 'applied' ? 'selected' : ''}>Applied ✓</option>
+          <option value="interviewing" ${appStatus === 'interviewing' ? 'selected' : ''}>Interviewing</option>
+          <option value="offer" ${appStatus === 'offer' ? 'selected' : ''}>Offer</option>
+          <option value="hired" ${appStatus === 'hired' ? 'selected' : ''}>Hired</option>
+          <option value="rejected" ${appStatus === 'rejected' ? 'selected' : ''}>Rejected</option>
+          <option value="withdrawn" ${appStatus === 'withdrawn' ? 'selected' : ''}>Withdrawn</option>
+        </select>
+      `;
+      footer.dataset.url = job.url || '';
+
+      panel.classList.add('open');
+      panel.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      const timelineBox = content.querySelector('.job-timeline');
+      if (timelineBox) loadTimeline(timelineBox);
+    }
+
+    function dbIsSafeHttpUrl(url) {
+      try {
+        const u = new URL(String(url || ''));
+        return u.protocol === 'http:' || u.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }
+
+    (function bindDetailFooterDelegation() {
+      const footer = document.getElementById('detail-footer');
+      if (!footer || footer.dataset.bound === '1') return;
+      footer.dataset.bound = '1';
+      footer.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-detail-action]');
+        if (!t || !footer.contains(t)) return;
+        const url = footer.dataset.url || '';
+        const action = t.dataset.detailAction;
+        if (action === 'open') {
+          if (!url || t.getAttribute('href') === '#') {
+            e.preventDefault();
+            return;
+          }
+          openListing(url);
+          return;
+        }
+        if (action === 'cl') {
+          e.preventDefault();
+          openCL(url);
+          return;
+        }
+        if (action === 'save') {
+          e.preventDefault();
+          toggleSaved(url);
+        }
+      });
+      footer.addEventListener('change', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLSelectElement) || t.dataset.detailAction !== 'status') return;
+        changeStatus(footer.dataset.url || '', t.value);
+      });
+    })();
+
+    function closeDetailPanel() {
+      const panel = document.getElementById('detail-panel');
+      panel.classList.remove('open');
+      panel.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
     }
 
     function cardUrlFrom(el) {
@@ -2869,15 +3446,21 @@
         if (!t || !list.contains(t)) return;
         const action = t.dataset.action;
         const url = cardUrlFrom(t);
+        if (action === 'details') {
+          e.preventDefault();
+          openDetailPanel(url);
+          return;
+        }
         if (action === 'open') {
           if (!url || t.getAttribute('href') === '#') {
             e.preventDefault();
             return;
           }
-          markJobViewed(url);
+          openListing(url);
           return;
         }
         if (action === 'cl') { e.preventDefault(); openCL(url); return; }
+        if (action === 'save') { e.preventDefault(); toggleSaved(url); return; }
         if (action === 'delete') { e.preventDefault(); softDeleteJob(url); }
       });
       list.addEventListener('change', (e) => {
@@ -2895,6 +3478,8 @@
 
     function renderJobs() {
       const verdict = document.getElementById('filter-verdict').value;
+      const listingFilter = document.getElementById('filter-listing').value;
+      const sourceFilter = document.getElementById('filter-source').value;
       const search = document.getElementById('search-input').value.toLowerCase();
       const sort = document.getElementById('sort-by').value;
       const ageDays = document.getElementById('filter-age').value;
@@ -2907,6 +3492,9 @@
       let jobs = inTab;
       if (verdict !== 'all') jobs = jobs.filter(j => j.verdict === verdict);
       else if (hideSkips) jobs = jobs.filter(j => j.verdict !== 'skip');
+      if (listingFilter !== 'all') jobs = jobs.filter(j =>
+        (j.effective_listing_status || j.listing_status || 'unknown') === listingFilter);
+      if (sourceFilter !== 'all') jobs = jobs.filter(j => (j.source || '') === sourceFilter);
       if (search) jobs = jobs.filter(j =>
         (j.title || '').toLowerCase().includes(search) ||
         (j.company || '').toLowerCase().includes(search) ||
@@ -2916,13 +3504,13 @@
       if (tier.max !== null) jobs = jobs.filter(j => (j.score ?? 0) <= tier.max);
       if (ageCutoff !== null) {
         jobs = jobs.filter(j => {
-          const t = Date.parse(j.scored_at || j.updated_at || '');
+          const t = Date.parse(j.discovered_at || '');
           return Number.isFinite(t) && t >= ageCutoff;
         });
       }
 
-      // Always-on pin: unviewed + score ≥ 80, score high→low — independent of sort dropdown
-      const isNewHigh = j => !j.viewed_at && (j.score ?? 0) >= NEW_HIGH_SCORE;
+      // Always-on pin: unopened + score ≥ 80, score high→low — independent of sort dropdown
+      const isNewHigh = j => !j.last_opened_at && (j.score ?? 0) >= NEW_HIGH_SCORE;
       let pinned = jobs.filter(isNewHigh);
       let rest = jobs.filter(j => !isNewHigh(j));
       pinned.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -2986,8 +3574,20 @@
       window.scrollTo({ top: scrollY, behavior: 'instant' });
     }
 
+    function populateSourceFilter() {
+      const sel = document.getElementById('filter-source');
+      if (!sel) return;
+      const prev = sel.value;
+      const sources = [...new Set(allJobs.map(j => j.source).filter(Boolean))].sort();
+      sel.innerHTML = '<option value="all">All sources</option>' +
+        sources.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      sel.value = [...sources, 'all'].includes(prev) ? prev : 'all';
+    }
+
     function clearListFilters() {
       document.getElementById('filter-verdict').value = 'all';
+      document.getElementById('filter-listing').value = 'all';
+      document.getElementById('filter-source').value = 'all';
       document.getElementById('filter-age').value = 'all';
       document.getElementById('search-input').value = '';
       document.getElementById('hide-skips').checked = false;
@@ -3001,17 +3601,85 @@
       renderJobs();
     }
 
-    async function changeStatus(url, newStatus, isUndo = false) {
+    let pendingStatus = null; // { url, status } awaiting a skip/reject reason
+
+    function syncStatusControls(url, status) {
+      const cls = `status-dropdown ${statusCls(status)}`;
+      document.querySelectorAll(`.job-card[data-url="${CSS.escape(url)}"] [data-action="status"]`).forEach(sel => {
+        sel.value = status;
+        sel.className = cls;
+      });
+      const footer = document.getElementById('detail-footer');
+      if (footer?.dataset.url === url) {
+        const sel = footer.querySelector('[data-detail-action="status"]');
+        if (sel) {
+          sel.value = status;
+          sel.className = cls;
+        }
+        const saveBtn = footer.querySelector('[data-detail-action="save"]');
+        const job = allJobs.find(j => j.url === url);
+        if (saveBtn && job) saveBtn.textContent = job.is_saved ? 'Unsave' : 'Save';
+      }
+    }
+
+    function changeStatus(url, newStatus) {
       const job = allJobs.find(j => j.url === url);
-      const prevStatus = job ? (job.status || 'none') : 'none';
-      if (job && prevStatus === newStatus) return;
+      if (job && (job.application_status || 'not_reviewed') === newStatus) return;
+      if (newStatus === 'skipped' || newStatus === 'rejected') {
+        // Snap controls back — reason modal is the commit point (cancel must not stick)
+        syncStatusControls(url, job?.application_status || 'not_reviewed');
+        pendingStatus = { url, status: newStatus };
+        openReasonModal(url, newStatus);
+        return;
+      }
+      saveApplicationStatus(url, newStatus, null, null, null, false);
+    }
+
+    async function toggleSaved(url) {
+      const job = allJobs.find(j => j.url === url);
+      if (!job) return;
+      const next = !job.is_saved;
+      job.is_saved = next;
+      updateTabCounts();
+      renderJobs();
+      syncStatusControls(url, job.application_status || 'not_reviewed');
+      try {
+        const res = await fetch('/api/jobs/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, saved: next }),
+        });
+        if (!res.ok) throw new Error('server error');
+      } catch {
+        job.is_saved = !next;
+        updateTabCounts();
+        renderJobs();
+        syncStatusControls(url, job.application_status || 'not_reviewed');
+        showError('Failed to update saved flag.');
+      }
+    }
+
+    async function saveApplicationStatus(url, newStatus, reason, note, prevSnapshot, isUndo) {
+      const job = allJobs.find(j => j.url === url);
+      const prevStatus = prevSnapshot ? prevSnapshot.status : (job?.application_status || 'not_reviewed');
+      const prevReason = prevSnapshot ? prevSnapshot.reason : job?.application_reason;
+      const prevNote = prevSnapshot ? prevSnapshot.note : job?.application_note;
+      const prevUpdated = prevSnapshot ? prevSnapshot.updated_at : job?.application_updated_at;
 
       // optimistic: update locally, animate the card out, then re-render
       if (job) {
+        job.application_status = newStatus;
+        if (reason !== null && reason !== undefined) job.application_reason = reason || null;
+        if (note !== null && note !== undefined) job.application_note = note || '';
+        job.application_updated_at = new Date().toISOString();
+        job.display_label = APP_LABELS[newStatus] || statusLabel(newStatus);
         job.status = newStatus;
-        job.updated_at = new Date().toISOString();
       }
-      const rerender = () => { updateTabCounts(); renderJobs(); };
+      const rerender = () => {
+        updateTabCounts();
+        renderJobs();
+        syncStatusControls(url, job?.application_status || newStatus);
+      };
       const card = document.querySelector(`.job-card[data-url="${CSS.escape(url)}"]`);
       if (card && !REDUCED_MOTION.matches) {
         card.classList.add('job-card--leaving');
@@ -3021,28 +3689,83 @@
       }
 
       try {
+        const body = { url, status: newStatus };
+        if (reason !== null && reason !== undefined) body.reason = reason;
+        if (note !== null && note !== undefined) body.note = note;
         const res = await fetch('/api/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, status: newStatus })
+          body: JSON.stringify(body)
         });
         if (!res.ok) throw new Error('server error');
         updateFunnelSummary();
+        // Refresh timeline if detail panel is open for this job
+        const timelineBox = document.querySelector(`#detail-content .job-timeline[data-url="${CSS.escape(url)}"]`);
+        if (timelineBox) {
+          delete timelineBox.dataset.loaded;
+          timelineBox.innerHTML = '<span class="form-hint">Loading…</span>';
+          loadTimeline(timelineBox);
+        }
         if (isUndo) {
           showToast('Status restored.');
         } else {
-          const label = newStatus === 'none' ? 'Not Started' : statusLabel(newStatus);
-          showToast(`Status changed to ${label}`, {
+          showToast(`Status changed to ${statusLabel(newStatus)}`, {
             actionLabel: 'Undo',
-            onAction: () => changeStatus(url, prevStatus, true)
+            onAction: () => saveApplicationStatus(url, prevStatus, prevReason, prevNote, {
+              status: prevStatus, reason: prevReason, note: prevNote, updated_at: prevUpdated,
+            }, true)
           });
         }
       } catch {
         // roll back the optimistic update
-        if (job) job.status = prevStatus;
+        if (job) {
+          job.application_status = prevStatus;
+          job.application_reason = prevReason;
+          job.application_note = prevNote;
+          job.application_updated_at = prevUpdated;
+        }
         rerender();
         showError('Failed to save status. Try again.');
       }
+    }
+
+    function openReasonModal(url, status) {
+      const sel = document.getElementById('reason-select');
+      const reasons = status === 'rejected' ? REJECTION_REASONS : SKIP_REASONS;
+      sel.innerHTML = reasons.map(r => `<option value="${r}">${REASON_LABELS[r] || r}</option>`).join('');
+      document.getElementById('reason-note').value = '';
+      document.getElementById('reason-title').textContent =
+        status === 'rejected' ? 'Mark Rejected' : 'Mark Skipped';
+      const job = allJobs.find(j => j.url === url);
+      if (job && (job.application_status || '') === status) {
+        if (job.application_reason && reasons.includes(job.application_reason)) {
+          sel.value = job.application_reason;
+        }
+        document.getElementById('reason-note').value = job.application_note || '';
+      }
+      const modal = document.getElementById('reason-modal');
+      modal.style.display = '';
+      document.body.style.overflow = 'hidden';
+      modal.querySelector('.modal-panel').focus();
+      sel.focus();
+    }
+
+    function closeReasonModal() {
+      pendingStatus = null;
+      document.getElementById('reason-modal').style.display = 'none';
+      document.body.style.overflow = '';
+      // Dropdown already snapped via syncStatusControls; re-render cards to be sure
+      renderJobs();
+    }
+
+    async function confirmReason() {
+      if (!pendingStatus) return;
+      const { url, status } = pendingStatus;
+      pendingStatus = null;
+      const reason = document.getElementById('reason-select').value || 'other';
+      const note = document.getElementById('reason-note').value;
+      closeReasonModal();
+      await saveApplicationStatus(url, status, reason, note, null, false);
     }
 
     /* ── cover letter modal ──────────────────────────────── */
@@ -3242,18 +3965,18 @@
       const btn = document.getElementById('bulk-apply-btn');
       const tier = TIERS[tierIdx];
       const eligible = allJobs.filter(j => {
-        if ((j.status || 'none') !== 'none') return false;
+        if ((j.application_status || 'not_reviewed') !== 'not_reviewed') return false;
         const s = j.score || 0;
         if (tier.min !== null && s < tier.min) return false;
         if (tier.max !== null && s > tier.max) return false;
         return !!j.url;
       });
       if (eligible.length === 0) {
-        showError(`No Not Started jobs for "${tier.label}".`);
+        showError(`No Not Reviewed jobs for "${tier.label}".`);
         return;
       }
       if (!confirm(
-        `Mark ${eligible.length} Not Started job${eligible.length !== 1 ? 's' : ''} as applied (${tier.label}) and open their links?\n\nIgnored, hired, and other statuses are left unchanged.`
+        `Mark ${eligible.length} Not Reviewed job${eligible.length !== 1 ? 's' : ''} as applied (${tier.label}) and open their links?\n\nOther application states are left unchanged.`
       )) return;
       setBtnLoading(btn, 'Applying…');
       let url = '/api/bulk-apply';
@@ -3266,7 +3989,7 @@
         if (!res.ok) throw new Error('server error');
         const { urls, count } = await res.json();
         if (count === 0) {
-          showError(`No Not Started jobs found for "${tier.label}".`);
+          showError(`No Not Reviewed jobs found for "${tier.label}".`);
           return;
         }
         showSuccess(`Marked ${count} job${count !== 1 ? 's' : ''} as applied (${tier.label}). Opening links…`);
@@ -3346,6 +4069,8 @@
       }
       if (!st.has_resume) {
         parts.push('Resume missing — paste or upload one before running.');
+      } else if (st.resume_usable === false) {
+        parts.push('Resume looks like a placeholder — paste your real resume before running.');
       }
       if (!st.opencode_found) {
         parts.push('OpenCode CLI not found — install it from Settings or opencode.ai.');
@@ -3756,6 +4481,29 @@
         return;
       }
 
+      const reasonModal = document.getElementById('reason-modal');
+      if (reasonModal.style.display !== 'none') {
+        if (e.key === 'Escape') { closeReasonModal(); return; }
+        if (e.key === 'Tab') {
+          trapFocus(reasonModal.querySelector('.modal-panel') || reasonModal, e);
+        }
+        return;
+      }
+
+      const runDone = document.getElementById('run-complete-modal');
+      if (runDone && runDone.style.display !== 'none') {
+        if (e.key === 'Escape') { closeRunCompleteModal(); return; }
+        return;
+      }
+
+      const detailPanel = document.getElementById('detail-panel');
+      if (detailPanel?.classList.contains('open')) {
+        if (e.key === 'Escape') {
+          closeDetailPanel();
+          return;
+        }
+      }
+
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const tab = e.target.closest?.('[role="tab"]');
         if (tab && tab.closest('[role="tablist"]')) {
@@ -3832,11 +4580,12 @@
       try {
         st = await fetchSetupStatus();
         if (st.needs_onboarding) showWizard();
-        else if (st && (!st.has_firecrawl || !st.has_resume || !st.opencode_found)) {
+        else if (st && (!st.has_firecrawl || !st.has_resume || st.resume_usable === false || !st.opencode_found)) {
           // Dashboard path: onboarding already done but deps missing — banner + toast
           const bits = [];
           if (!st.has_firecrawl) bits.push('Firecrawl key');
           if (!st.has_resume) bits.push('resume');
+          else if (st.resume_usable === false) bits.push('usable resume (placeholder detected)');
           if (!st.opencode_found) bits.push('OpenCode');
           showToast('Setup incomplete: missing ' + bits.join(', ') + '.', {
             variant: 'error',

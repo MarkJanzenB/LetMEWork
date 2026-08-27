@@ -61,7 +61,83 @@ MAX_PAGES_TO_SCRAPE = 20
 SCRAPE_TIMEOUT_MS = 120000  # listing pages (JobStreet, LinkedIn) are JS-heavy
 
 # ── status lifecycle ───────────────────────────────────
-VALID_STATUSES = ("none", "applied", "ignored", "interviewed", "rejected", "hired", "closed")
+# Two independent state machines. Listing is system/scraper-controlled;
+# application is user-controlled. stale/expiring/expired are DERIVED at read
+# time by db.effective_listing_status() — never stored.
+LISTING_STATUSES = ("active", "closed", "not_accepting", "unavailable", "unknown")
+APPLICATION_STATUSES = (
+    "not_reviewed",
+    "skipped",
+    "applied",
+    "interviewing",
+    "offer",
+    "hired",
+    "rejected",
+    "withdrawn",
+)
+SKIP_REASONS = (
+    "location",
+    "experience",
+    "skills",
+    "compensation",
+    "employment_type",
+    "schedule",
+    "company",
+    "duplicate",
+    "low_match",
+    "other",
+)
+REJECTION_REASONS = (
+    "experience",
+    "skills",
+    "location",
+    "compensation",
+    "position_filled",
+    "candidate_pool",
+    "internal_candidate",
+    "other",
+    "unknown",
+)
+EVENT_TYPES = (
+    "applied",
+    "follow_up",
+    "recruiter_contact",
+    "assessment",
+    "interview",
+    "offer",
+    "hired",
+    "withdrawn",
+    "rejected",
+    "other",
+)
+EVENT_SOURCES = ("user", "system", "ai")
+
+# Listing freshness derivation thresholds (used by db.effective_listing_status)
+LISTING_STALE_AFTER_DAYS = 7      # last_verified_at older than this → stale
+LISTING_EXPIRING_BEFORE_DAYS = 2  # deadline within this many days → expiring
+LISTING_EXPIRED_AFTER_DAYS = 0    # deadline at or before now → expired
+
+APPLICATION_LABELS = {
+    "not_reviewed": "Not Reviewed",
+    "skipped": "Skipped",
+    "applied": "Applied",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "hired": "Hired",
+    "rejected": "Rejected",
+    "withdrawn": "Withdrawn",
+}
+
+LISTING_LABELS = {
+    "active": "Not Reviewed",
+    "unknown": "Not Reviewed",
+    "stale": "Not Reviewed",
+    "expiring": "Expiring Soon",
+    "expired": "Expired",
+    "closed": "Listing Closed",
+    "unavailable": "Listing Closed",
+    "not_accepting": "Not Accepting",
+}
 
 # ── default search config ──────────────────────────────
 # OnlineJobs.ph stays available in Settings but off by default —

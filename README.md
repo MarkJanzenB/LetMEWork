@@ -116,7 +116,7 @@ SQLite data/jobs.db (+ optional output/*.json)
 - **[Firecrawl](https://firecrawl.dev)** — search + structured scrape  
 - **[OpenCode](https://opencode.ai)** — profile, scoring, cover letters (`prompts/`)  
 - **Vanilla HTML/JS dashboard** — bulk actions, filters, live run logs (`ui/`)  
-- Free models preferred when healthy; optional OpenRouter; Ollama when local daemon is up  
+- Free models preferred when healthy; optional OpenRouter / Ollama Cloud keys 
 
 ---
 
@@ -124,14 +124,14 @@ SQLite data/jobs.db (+ optional output/*.json)
 
 **Rule:** the pipeline **always runs models through OpenCode** (`opencode run … --model <id>`). Probing may talk to a provider **directly**, then register survivors so OpenCode can see them.
 
-### Ollama (implemented)
+### Ollama Cloud (implemented)
 
-1. **Discover** — local `GET {OLLAMA_HOST}/api/tags` (default `http://127.0.0.1:11434`), plus `https://ollama.com/api/tags` when `OLLAMA_API_KEY` is set.  
-2. **Probe** — each tag via Ollama’s own `POST /api/generate` (not OpenCode); cloud calls use the Bearer key.  
-3. **Sync into OpenCode** — healthy tags are written to `opencode.json` under `provider.ollama` (OpenAI-compatible `baseURL` + a `models` map). If local daemon is down but a cloud key is set, `baseURL` points at `https://ollama.com/v1`.  
-4. **Run** — healthy entries are used as OpenCode ids `ollama/<tag>` during the job pipeline.
+1. **Discover** — when `OLLAMA_API_KEY` is set, `GET https://ollama.com/api/tags`.  
+2. **Probe** — each tag via Ollama Cloud `POST /api/generate` with Bearer key (not OpenCode).  
+3. **Sync into OpenCode** — healthy tags → `opencode.json` `provider.ollama` with `baseURL` `https://ollama.com/v1`.  
+4. **Run** — OpenCode ids `ollama/<tag>`.
 
-**Keys:** local `ollama serve` needs **no** API key. Optional **Ollama Cloud** key (`OLLAMA_API_KEY`, from [ollama.com/settings/keys](https://ollama.com/settings/keys)) is configured in onboarding/Settings under **Model providers** alongside OpenRouter.
+Local `ollama serve` is **not** used. Key from [ollama.com/settings/keys](https://ollama.com/settings/keys), configured under **Model providers** with OpenRouter.
 
 ### OpenRouter & OpenCode builtins (implemented)
 
@@ -162,8 +162,7 @@ npm install -g opencode-ai
 
 opencode providers login      # configure cloud providers as needed
 
-# Optional: Ollama local (or cloud tags exposed by your Ollama)
-# ollama serve   # then pull models; Let Me Work probes + syncs into opencode.json
+# Optional: Ollama Cloud key in .env / Settings (OLLAMA_API_KEY) — no local daemon
 
 # Resume (gitignored) — or upload via UI after launch
 # create resume.md in the project root

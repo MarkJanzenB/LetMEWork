@@ -10,9 +10,15 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ## [Unreleased]
 
 ### Added
+- Resume stub guard: refuse Run Agent when resume is empty/placeholder (`# New Resume`); setup status exposes `resume_usable`
+- Reuse last `search_config.json` when the model returns zero search queries
+- Cancel policy: discard scrape before scoring; keep jobs if cancel happens after scores are saved
+- Run-complete modal with new / updated / above-threshold counts (+ chime, respects reduced motion)
 ### Changed
+- Ollama provider is **Cloud-only** (`OLLAMA_API_KEY` → ollama.com); local `ollama serve` is no longer probed
 ### Fixed
 ### Removed
+- Local Ollama daemon discovery/probing (`127.0.0.1:11434`)
 
 ## [0.1.0-beta.4] — 2026-08-06
 

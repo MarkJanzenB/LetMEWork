@@ -194,8 +194,6 @@ def test_discover_openrouter_prefers_free(monkeypatch):
 
 
 def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
-
-
     import io
     import json
 
@@ -218,6 +216,7 @@ def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
 
     def urlopen_smart(req, timeout=None):
         url = req if isinstance(req, str) else req.full_url
+        assert "ollama.com" in str(url)
         if str(url).endswith("/api/tags"):
             return CM(json.dumps(tags).encode())
         data = getattr(req, "data", b"") or b""
@@ -228,6 +227,7 @@ def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
     oc_path = tmp_path / "opencode.json"
     oc_path.write_text('{"$schema": "x", "agent": {"job-agent": {}}}', encoding="utf-8")
     monkeypatch.setattr(model_prober, "_opencode_json_path", lambda: oc_path)
+    monkeypatch.setattr(model_prober, "_ollama_api_key", lambda: "test-key")
     monkeypatch.setattr(model_prober.urllib.request, "urlopen", urlopen_smart)
 
     healthy = model_prober.probe_ollama_models()
@@ -235,8 +235,20 @@ def test_ollama_probe_and_opencode_sync(tmp_path, monkeypatch):
     model_prober.sync_ollama_models_to_opencode(healthy)
     cfg = json.loads(oc_path.read_text(encoding="utf-8"))
     assert "gemma4:e4b" in cfg["provider"]["ollama"]["models"]
-    assert cfg["provider"]["ollama"]["options"]["baseURL"].endswith("/v1")
+    assert cfg["provider"]["ollama"]["options"]["baseURL"] == "https://ollama.com/v1"
     assert cfg["agent"]["job-agent"] == {}
+
+
+def test_ollama_skipped_without_key(monkeypatch):
+    import io
+
+    import model_prober
+
+    monkeypatch.setattr(model_prober, "_ollama_api_key", lambda: "")
+    buf = io.StringIO()
+    monkeypatch.setattr("sys.stdout", buf)
+    assert model_prober.probe_ollama_models() == []
+    assert "Skipping Ollama Cloud" in buf.getvalue()
 
 
 def test_save_resume(tmp_path, monkeypatch):
@@ -300,3 +312,31 @@ def test_save_resume_pdf_keeps_original_and_extracts_text(tmp_path, monkeypatch)
     assert "HelloResumePDF" in result["content"]
     assert "HelloResumePDF" in (tmp_path / "resume.md").read_text(encoding="utf-8")
     assert result["original_name"] == "Mark_CV.pdf"
+
+
+def test_resume_is_usable_rejects_stub_and_short():
+    import user_data
+
+    assert user_data.resume_is_usable("") is False
+    assert user_data.resume_is_usable("# New Resume\nUpdated") is False
+    assert user_data.resume_is_usable("# New Resume\n" + ("x" * 50)) is False
+    assert user_data.resume_is_usable(
+        "# Mark Bandola\n\nSoftware developer with Python, React, and embedded "
+        "experience. Based in Cebu (GMT+8). Seeking remote AI / full-stack roles.\n"
+    ) is True
+
+
+def test_resume_usable_in_setup_status(tmp_path, monkeypatch):
+    import user_data
+
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(user_data, "env_path", lambda: tmp_path / ".env")
+    monkeypatch.setattr(user_data, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(user_data, "resume_path", lambda: tmp_path / "resume.md")
+    monkeypatch.setattr(user_data, "resource_dir", lambda: tmp_path / "missing-repo")
+    monkeypatch.setattr(user_data, "find_opencode", lambda: None)
+    (tmp_path / "resume.md").write_text("# New Resume\nUpdated\n", encoding="utf-8")
+    status = user_data.setup_status()
+    assert status["has_resume"] is True
+    assert status["resume_usable"] is False
+    assert status["ready"] is False

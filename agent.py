@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import zip_longest
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -49,7 +49,7 @@ def _init_models() -> None:
             print(f"  Model pool: {len(_healthy_models)} healthy models loaded")
         else:
             raise RuntimeError(
-                "No healthy models found. Check that opencode, ollama, and/or "
+                "No healthy models found. Check that opencode, Ollama Cloud, and/or "
                 "OPENROUTER_API_KEY are configured."
             )
 
@@ -105,9 +105,11 @@ def _get_healthy_model() -> str:
 EXTRACT_PROMPT = (
     "Extract every individual job posting on this page. For each posting capture "
     "the job title, the hiring company, the location, the direct URL to that "
-    "specific posting (not this listing/search page), the date it was posted, and "
-    "a short description. If the page is already a single job posting, return just "
-    "that one. Ignore navigation links, ads, related searches, and other pages."
+    "specific posting (not this listing/search page), the date it was posted, "
+    "a short description, the application deadline when shown, and whether the "
+    "posting is still open for applications. If the page is already a single job "
+    "posting, return just that one. Ignore navigation links, ads, related "
+    "searches, and other pages."
 )
 JOB_EXTRACT_SCHEMA = {
     "type": "object",
@@ -126,6 +128,28 @@ JOB_EXTRACT_SCHEMA = {
                     },
                     "posted_date": {"type": "string"},
                     "description": {"type": "string"},
+                    "listing_status": {
+                        "type": "string",
+                        "description": (
+                            "Is the posting still open for applications? One of: "
+                            "active, closed/filled/expired, not accepting "
+                            "applications, unavailable, or unknown."
+                        ),
+                    },
+                    "deadline_at": {
+                        "type": "string",
+                        "description": (
+                            "Application deadline when shown, e.g. 2026-08-30 or "
+                            "Aug 30, 2026. Empty string when not shown."
+                        ),
+                    },
+                    "source_job_id": {
+                        "type": "string",
+                        "description": (
+                            "The posting's own identifier on the source site when "
+                            "visible (e.g. Indeed's jk= parameter)."
+                        ),
+                    },
                 },
                 "required": ["title"],
             },
@@ -247,6 +271,80 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
 
 
 # ── step 1b: scrape each page and extract individual postings ─
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_listing_status(value) -> str:
+    """Map free-text availability signals to stored LISTING_STATUSES.
+
+    Sources: the Firecrawl extract schema's listing_status field and the analyze
+    prompt's listing_status output — both LLM free text, so this is keyword
+    matching with 'unknown' when unsure. 'expired' as text means the posting is
+    no longer open → closed; the stored expired/expiring/expired states are
+    derived by db.effective_listing_status from deadline_at, never stored here.
+    """
+    if not value:
+        return "unknown"
+    text = value.strip().lower()
+    if text in ("unknown", "n/a", "na", "-", "none", "null"):
+        return "unknown"
+    if any(k in text for k in (
+        "404", "page not found", "not found", "no longer exists", "does not exist",
+        "removed", "deleted", "gone", "unavailable",
+    )):
+        return "unavailable"
+    if any(k in text for k in (
+        "closed", "filled", "no longer accepting", "no longer hiring",
+        "expired", "ended", "inactive", "archived",
+    )):
+        return "closed"
+    if any(k in text for k in ("not accepting", "paused", "on hold", "on-hold")):
+        return "not_accepting"
+    if re.search(r"\bnot\b", text) and re.search(r"\b(open|hiring)\b", text):
+        return "closed"
+    if any(k in text for k in (
+        "active", "open", "hiring", "accepting", "now accepting", "live",
+    )):
+        return "active"
+    return "unknown"
+
+
+_DEADLINE_FORMATS = (
+    "%Y-%m-%d",
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+    "%Y/%m/%d",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%d %b %Y",
+    "%d %B %Y",
+)
+
+
+def _parse_deadline(value) -> str | None:
+    """Normalize a scraped/analyzed deadline to ISO-8601.
+
+    db.effective_listing_status derives expired/expiring from this value via
+    datetime.fromisoformat, so unparseable strings must never be stored.
+    """
+    if not value:
+        return None
+    text = value.strip().strip('"')
+    try:
+        return datetime.fromisoformat(text).isoformat()
+    except ValueError:
+        pass
+    for fmt in _DEADLINE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).isoformat()
+        except ValueError:
+            continue
+    # ponytail: relative deadlines ("in 2 weeks", "tomorrow") need 'today' to
+    # resolve — left as None for now; resolve in the analyze step if it matters.
+    return None
+
+
 def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
     """Scrape one page and extract the individual job postings it contains.
 
@@ -267,6 +365,9 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
                 "description": page["description"],
                 "posted_date": "",
                 "source": source,
+                "listing_status": "unknown",
+                "deadline_at": None,
+                "source_job_id": "",
             }
         ]
 
@@ -307,6 +408,9 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
                 "description": (p.get("description") or "").strip(),
                 "posted_date": (p.get("posted_date") or "").strip(),
                 "source": source,
+                "listing_status": _normalize_listing_status(p.get("listing_status")),
+                "deadline_at": _parse_deadline(p.get("deadline_at")),
+                "source_job_id": (p.get("source_job_id") or "").strip(),
             }
         )
     return postings or _snippet_fallback()
@@ -399,6 +503,89 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
     if skipped_deleted:
         print(f"  Skipped {skipped_deleted} soft-deleted posting(s)")
     return jobs
+
+
+# ── on-demand listing verification ───────────────────────
+def _is_unavailable_error(exc: BaseException) -> bool:
+    """Fetch-level evidence the listing is gone (404/410 or their messages)."""
+    if getattr(exc, "status_code", None) in (404, 410):
+        return True
+    msg = str(exc).lower()
+    return any(
+        k in msg for k in ("404", "410", "not found", "no longer exists", "page not found")
+    )
+
+
+def _scrape_listing_signal(app, url: str) -> dict:
+    """Re-fetch one posting URL and read its availability signal.
+
+    Returns listing fields to write (possibly empty = no confident signal, so
+    the caller must not touch state). A posting that extracts normally is
+    'active'; explicit closure text maps via _normalize_listing_status; fetch
+    errors that look like 404/410 map to 'unavailable'.
+    """
+    try:
+        doc = app.scrape(
+            url,
+            formats=[{"type": "json", "prompt": EXTRACT_PROMPT, "schema": JOB_EXTRACT_SCHEMA}],
+            only_main_content=True,
+            timeout=config.SCRAPE_TIMEOUT_MS,
+        )
+    except Exception as e:
+        if _is_unavailable_error(e):
+            return {"listing_status": "unavailable"}
+        return {}  # transient/bot-blocked — never guess
+    data = doc.json if isinstance(doc.json, dict) else {}
+    postings = data.get("jobs") or []
+    if (
+        not postings
+        or not isinstance(postings[0], dict)
+        or not (postings[0].get("title") or "").strip()
+    ):
+        return {}  # fetched but nothing extractable — can't tell
+    p = postings[0]
+    status = _normalize_listing_status(p.get("listing_status"))
+    if status == "unknown":
+        status = "active"  # the posting itself extracted → it exists
+    return {
+        "listing_status": status,
+        "deadline_at": _parse_deadline(p.get("deadline_at")),
+        "source_job_id": (p.get("source_job_id") or "").strip() or None,
+    }
+
+
+def verify_listings(urls: list[str], app=None) -> dict:
+    """Re-check listing availability on demand by re-fetching each URL.
+
+    Internal function the backend can call (no /api/verify exists yet). Writes
+    ONLY listing columns via db.set_listing_status — never application state.
+    Soft-deleted URLs are skipped and never resurrected.
+
+    ponytail: ceiling — this re-fetches the posting page and trusts the
+    extractor, so a generic "job not found" page that still returns HTTP 200
+    with a title extracts as active. Real per-site closure heuristics (401 vs
+    bot detection vs 404, site-specific "no longer available" markup) are the
+    upgrade path once a verify endpoint needs them.
+    """
+    import user_data
+
+    app = app or _FirecrawlFailover(user_data.firecrawl_api_keys())
+    result = {"checked": 0, "updated": {}}
+    for url in urls:
+        if db.is_url_soft_deleted(url):
+            continue
+        job_id = db.get_job_id_by_url(url)
+        if not job_id:
+            continue
+        signal = _scrape_listing_signal(app, url)
+        result["checked"] += 1
+        updates = {"last_scraped_at": _utc_now()}
+        if signal:
+            updates.update(signal)
+            updates["last_verified_at"] = _utc_now()
+        db.set_listing_status(job_id, **updates)
+        result["updated"][url] = signal.get("listing_status") if signal else None
+    return result
 
 
 # ── opencode runner ───────────────────────────────────────
@@ -722,6 +909,9 @@ def _validate_job_scores(data: list[dict]) -> list[dict]:
             "description": job.get("description", ""),
             "source": job.get("source", ""),
             "posted_date": job.get("posted_date", ""),
+            "listing_status": _normalize_listing_status(job.get("listing_status")),
+            "deadline_at": _parse_deadline(job.get("deadline_at")),
+            "source_job_id": (job.get("source_job_id") or "").strip(),
             "score": score,
             "verdict": verdict,
             "work_arrangement": job.get("work_arrangement", ""),
@@ -840,6 +1030,20 @@ def generate_cover_letters(
 
 
 # ── pipeline orchestrator ──────────────────────────────────
+def _stamp_listing_metadata(jobs: list[dict]) -> None:
+    """Scrape-write timestamps for every job the pipeline writes.
+
+    last_scraped_at on every scrape write; last_verified_at only when the
+    scrape produced a confident availability signal (existence confirmed).
+    Jobs the analyzer drops never reach this path.
+    """
+    now = _utc_now()
+    for job in jobs:
+        job["last_scraped_at"] = job.get("last_scraped_at") or now
+        if _normalize_listing_status(job.get("listing_status")) != "unknown":
+            job["last_verified_at"] = job.get("last_verified_at") or now
+
+
 def run_pipeline(on_progress=None) -> dict:
     """Run the full 4-step pipeline.
 
@@ -863,8 +1067,18 @@ def run_pipeline(on_progress=None) -> dict:
 
     if not config.RESUME_FILE.exists():
         raise RuntimeError(f"Missing {config.RESUME_FILE} — add your resume before running.")
+    resume_text = config.RESUME_FILE.read_text(encoding="utf-8")
+    import user_data as _ud
+
+    if not _ud.resume_is_usable(resume_text):
+        raise RuntimeError(
+            "Resume looks empty or like a placeholder — paste your real resume in Settings."
+        )
 
     run_id = db.start_run()
+    scored = False
+    all_jobs: list = []
+    upsert_stats = {"new": 0, "updated": 0}
 
     try:
         _check_cancelled()
@@ -874,10 +1088,30 @@ def run_pipeline(on_progress=None) -> dict:
 
         _check_cancelled()
         emit(1, "Building search config", "running")
+        prev_queries_path = config.OUTPUT_DIR / "search_config.json"
+        prev_config = None
+        if prev_queries_path.exists():
+            try:
+                prev_config = json.loads(prev_queries_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                prev_config = None
         search_config = build_search_config(profile)
-        search_queries = search_config.get("search_queries", [])
+        search_queries = [
+            q for q in (search_config.get("search_queries") or []) if str(q).strip()
+        ]
         if not search_queries:
-            raise RuntimeError("No search queries generated — check prompts/build_queries.md")
+            prev_qs = [
+                q for q in ((prev_config or {}).get("search_queries") or []) if str(q).strip()
+            ]
+            if prev_qs:
+                print("  Warning: model returned no queries — reusing last search_config.json")
+                search_config = prev_config
+                search_queries = prev_qs
+                prev_queries_path.write_text(json.dumps(search_config, indent=2))
+            else:
+                raise RuntimeError(
+                    "No search queries generated — check resume quality or prompts/build_queries.md"
+                )
         emit(1, "Building search config", "done")
 
         _check_cancelled()
@@ -892,7 +1126,9 @@ def run_pipeline(on_progress=None) -> dict:
         _check_cancelled()
         emit(3, "Analyzing & scoring", "running")
         all_jobs = analyze_jobs(profile)
-        db.save_pipeline_output(all_jobs, run_id)
+        _stamp_listing_metadata(all_jobs)
+        upsert_stats = db.save_pipeline_output(all_jobs, run_id) or upsert_stats
+        scored = True
         emit(3, "Analyzing & scoring", "done")
 
         good_jobs = [j for j in all_jobs if j.get("score", 0) >= config.THRESHOLD]
@@ -904,10 +1140,30 @@ def run_pipeline(on_progress=None) -> dict:
         emit(4, "Cover letters (on demand)", "done")
 
         db.finish_run(run_id, jobs_found=len(all_jobs), above_threshold=len(good_jobs))
-        return {"total": len(all_jobs), "above_threshold": len(good_jobs)}
+        return {
+            "total": len(all_jobs),
+            "above_threshold": len(good_jobs),
+            "new": upsert_stats.get("new", 0),
+            "updated": upsert_stats.get("updated", 0),
+        }
 
     except Exception as e:
-        db.finish_run(run_id, error=str(e))
+        msg = str(e)
+        cancelled = "cancelled" in msg.lower()
+        if cancelled and not scored:
+            db.discard_run(run_id)
+        else:
+            above = sum(1 for j in all_jobs if j.get("score", 0) >= config.THRESHOLD)
+            db.finish_run(
+                run_id,
+                jobs_found=len(all_jobs),
+                above_threshold=above,
+                error=(
+                    "cancelled after scoring (results kept)"
+                    if cancelled
+                    else msg
+                ),
+            )
         raise
     finally:
         global _current_opencode_proc

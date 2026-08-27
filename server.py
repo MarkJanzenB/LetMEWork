@@ -153,6 +153,19 @@ async def update_apply():
     return {"ok": True, "path": str(dest)}
 
 
+class SaveJobBody(BaseModel):
+    url: str
+    saved: bool
+
+
+@app.post("/api/jobs/save")
+async def save_job(body: SaveJobBody):
+    """Toggle is_saved flag for a job."""
+    if not db.set_job_saved(body.url, body.saved):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True}
+
+
 @app.get("/api/jobs")
 async def get_jobs():
     jobs = db.get_jobs_for_api()
@@ -162,28 +175,77 @@ async def get_jobs():
 class StatusUpdate(BaseModel):
     url: str
     status: str
+    reason: str | None = None
+    note: str | None = None
 
 
 @app.post("/api/status")
 async def update_status(body: StatusUpdate):
+    """User-controlled application state. Writes the application row AND a
+    matching timeline event. Never touches listing_state."""
     job_id = db.get_job_id_by_url(body.url)
     if not job_id:
         raise HTTPException(status_code=404, detail="Job not found")
     try:
-        db.set_job_status(job_id, body.status)
+        db.set_application_status(
+            job_id, body.status, reason=body.reason, note=body.note
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "application_status": body.status}
+
+
+class ListingUpdate(BaseModel):
+    url: str
+    listing_status: str | None = None
+    deadline_at: str | None = None
+    last_verified_at: str | None = None
+    last_scraped_at: str | None = None
+    source_job_id: str | None = None
+
+
+@app.post("/api/listing")
+async def update_listing(body: ListingUpdate):
+    """System/scraper-controlled listing state. Updates ONLY jobs listing
+    fields — never application state."""
+    job_id = db.get_job_id_by_url(body.url)
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        db.set_listing_status(
+            job_id,
+            listing_status=body.listing_status,
+            deadline_at=body.deadline_at,
+            last_verified_at=body.last_verified_at,
+            last_scraped_at=body.last_scraped_at,
+            source_job_id=body.source_job_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
 
 
-@app.post("/api/viewed")
-async def mark_viewed(body: StatusUpdate):
-    db.mark_viewed(body.url)
-    return {"ok": True}
-
-
 class UrlBody(BaseModel):
     url: str
+
+
+@app.post("/api/open")
+async def mark_open(body: UrlBody):
+    """Explicit 'Open Listing' user click. Sets last_opened_at ONLY — scraper
+    fetches and listing updates must never call this."""
+    ts = db.mark_opened(body.url)
+    if ts is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, "last_opened_at": ts}
+
+
+@app.get("/api/timeline")
+async def timeline(url: str = Query(...)):
+    """Application timeline (status + ordered events) for one job."""
+    job_id = db.get_job_id_by_url(url)
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return db.get_timeline(job_id)
 
 
 @app.post("/api/delete")
@@ -408,10 +470,10 @@ def _require_ready_to_scrape() -> None:
             status_code=400,
             detail="OpenCode not found. Reinstall Let Me Work or install OpenCode.",
         )
-    if not status["has_resume"]:
+    if not status.get("resume_usable", status.get("has_resume")):
         raise HTTPException(
             status_code=400,
-            detail="Add your resume in Settings before running the agent.",
+            detail="Resume looks empty or like a placeholder — paste your real resume in Settings.",
         )
 
 
@@ -420,7 +482,8 @@ async def bulk_apply(
     min_score: int | None = Query(default=None),
     max_score: int | None = Query(default=None),
 ):
-    """Mark Not Started jobs in the score band as applied; never overwrite other statuses."""
+    """Mark not_reviewed jobs in the score band as applied; never overwrite an
+    existing application state."""
     jobs = db.get_jobs_for_api()
     urls = []
     for job in jobs:
@@ -428,7 +491,7 @@ async def bulk_apply(
         score = job.get("score", 0)
         if not url:
             continue
-        if (job.get("status") or "none") != "none":
+        if (job.get("application_status") or "not_reviewed") != "not_reviewed":
             continue
         if min_score is not None and score < min_score:
             continue
@@ -436,7 +499,7 @@ async def bulk_apply(
             continue
         job_id = job.get("id")
         if job_id:
-            db.set_job_status(job_id, "applied")
+            db.set_application_status(job_id, "applied")
             urls.append(url)
     return JSONResponse({"urls": urls, "count": len(urls)})
 
@@ -483,12 +546,8 @@ def generate_cover_letter_endpoint(body: CoverLetterBody):
 
 @app.get("/api/status-counts")
 async def get_status_counts():
-    counts = db.get_status_counts()
-    # Ensure all statuses are present
-    for status in ["none", "applied", "ignored", "interviewed", "rejected", "hired", "closed"]:
-        if status not in counts:
-            counts[status] = 0
-    return counts
+    """Counts by application and listing status over the /api/jobs universe."""
+    return db.get_status_counts()
 
 
 @app.get("/api/runs")
@@ -509,7 +568,7 @@ async def export_csv(
     filtered_jobs = []
     for job in jobs:
         score = job.get("score", 0)
-        job_status = job.get("status", "none")
+        job_status = job.get("status", "not_reviewed")
 
         if min_score is not None and score < min_score:
             continue
@@ -546,7 +605,7 @@ async def export_csv(
             [
                 job.get("score", ""),
                 job.get("verdict", ""),
-                job.get("status", "none"),
+                job.get("status", "not_reviewed"),
                 job.get("title", ""),
                 job.get("company", ""),
                 job.get("location", ""),

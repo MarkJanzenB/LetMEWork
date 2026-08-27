@@ -23,11 +23,20 @@ Your entire response must be only the raw JSON array — no markdown fences, no 
   "score": 0,
   "verdict": "apply|review|skip",
   "work_arrangement": "remote|hybrid|onsite",
+  "listing_status": "active|closed|not_accepting|unavailable|unknown",
+  "deadline_at": "YYYY-MM-DD or null",
+  "source_job_id": "",
   "match_reasons": [],
   "red_flags": [],
   "suggested_angle": ""
 }]
 
 work_arrangement: infer from the job posting whether the role is remote, hybrid, or onsite. If unclear, use your best judgment based on context clues (location mentioned, "remote" keyword, company policies, etc.).
+
+listing_status: report the posting's own availability signal from its text. Use 'closed' when the text says the position is filled, closed, expired, or no longer accepting applications; 'not_accepting' when it says applications are paused or not being accepted right now; 'unavailable' when the posting is gone, removed, or 404; 'active' for a normal open posting; 'unknown' when there is no signal at all. If the scraped job already provides a listing_status, deadline_at, or source_job_id, carry those through rather than guessing.
+
+deadline_at: the application deadline when shown, as YYYY-MM-DD. null when no deadline is shown — never invent one.
+
+source_job_id: the posting's identifier on the source site when visible in the URL or page (e.g. Indeed's jk= parameter). Empty string when not extractable.
 
 suggested_angle: one sentence on how the candidate should frame their application for this specific role. Reference specific projects or experience from the profile that directly relate to the job's requirements.

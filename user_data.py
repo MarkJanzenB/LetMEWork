@@ -503,9 +503,10 @@ def setup_status() -> dict:
     resume = resume_path()
     repo_resume = resource_dir() / "resume.md"
     has_resume = resume.exists() or repo_resume.exists()
+    resume_usable = resume_is_usable()
     pdf = resume_pdf_path()
     settings_pdf_name = settings.get("resume_pdf_name") or (pdf.name if pdf.exists() else "")
-    ready = bool(fc or fc_backup) and has_resume and bool(oc)
+    ready = bool(fc or fc_backup) and resume_usable and bool(oc)
     onboarding_complete = bool(settings.get("onboarding_complete"))
     # Packaged: always wizard until marked done. Dev: skip if already configured.
     needs_onboarding = (not onboarding_complete) and (is_frozen() or not ready)
@@ -528,6 +529,7 @@ def setup_status() -> dict:
         "opencode_path": oc,
         "opencode_found": bool(oc),
         "has_resume": has_resume,
+        "resume_usable": resume_usable,
         "resume_path": str(resume if resume.exists() else repo_resume),
         "has_resume_pdf": pdf.exists(),
         "resume_pdf_path": str(pdf) if pdf.exists() else "",
@@ -546,3 +548,28 @@ def save_resume_text(text: str) -> Path:
     path = resume_path()
     path.write_text(text.strip() + "\n", encoding="utf-8")
     return path
+
+
+def resume_is_usable(text: str | None = None) -> bool:
+    """False for missing/empty/placeholder resumes that break query generation.
+
+    Stub like `# New Resume\\nUpdated` counts as present on disk but is unusable.
+    """
+    if text is None:
+        path = resume_path()
+        if not path.exists():
+            repo = resource_dir() / "resume.md"
+            path = repo if repo.exists() else path
+        if not path.exists():
+            return False
+        text = path.read_text(encoding="utf-8")
+    stripped = (text or "").strip()
+    if len(stripped) < 80:
+        return False
+    low = stripped.lower()
+    # Onboarding placeholder from setup tests / empty wizard save
+    if low.startswith("# new resume") and len(stripped) < 200:
+        return False
+    if "paste your resume" in low[:120] or "your resume here" in low[:120]:
+        return False
+    return True

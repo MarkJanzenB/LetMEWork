@@ -1,11 +1,12 @@
 """Model health prober — discover then probe (no hardcoded model menus).
 
 Flow:
-  1. Ollama reachable → list `/api/tags`, probe each, sync into opencode.json
+  1. Ollama Cloud key present → list ollama.com `/api/tags`, probe, sync into opencode.json
   2. OpenRouter API key present → list OpenRouter `/api/v1/models`, probe via OpenCode
-  3. Else (no Ollama hits and no OpenRouter key) → `opencode models opencode` free list
+  3. Else → `opencode models opencode` free list
 
 OpenRouter / OpenCode builtins are health-checked with `opencode run`.
+Local `ollama serve` is not used.
 """
 
 from __future__ import annotations
@@ -25,8 +26,7 @@ import user_data
 HEALTH_FILE = config.DATA_DIR / "healthy_models.json"
 PROBE_PROMPT = "Reply with only the word hello."
 PROBE_TIMEOUT = 30  # seconds per OpenCode model probe
-OLLAMA_PROBE_TIMEOUT = 60  # local/cloud Ollama generate can be slower
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+OLLAMA_PROBE_TIMEOUT = 60
 OLLAMA_CLOUD = "https://ollama.com"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # ponytail: cap OpenRouter / Ollama cloud probes — catalogs can be huge
@@ -39,7 +39,7 @@ _OPENCODE_KNOWN_FREE = frozenset({"opencode/big-pickle"})
 _OPENCODE_CHEAP_HINTS = ("pickle", "nano", "flash-lite", "haiku", "mini", "flash")
 
 
-# ── Ollama via native HTTP API (local and/or ollama.com cloud key) ──
+# ── Ollama Cloud via native HTTP API (requires OLLAMA_API_KEY) ──
 
 
 def _ollama_api_key() -> str:
@@ -74,69 +74,44 @@ def _tags_from_payload(data: dict | None) -> list[str]:
 
 
 def _ollama_list_models() -> list[str]:
-    """Local daemon tags, plus ollama.com tags when OLLAMA_API_KEY is set."""
-    seen: set[str] = set()
-    out: list[str] = []
+    """ollama.com tags when OLLAMA_API_KEY is set; otherwise skip."""
+    if not _ollama_api_key():
+        print("  Skipping Ollama Cloud — no API key", flush=True)
+        return []
 
-    def _add(names: list[str]) -> None:
-        for n in names:
-            if n not in seen:
-                seen.add(n)
-                out.append(n)
-
-    print(f"  Listing Ollama models ({OLLAMA_HOST})...", flush=True)
-    local = _tags_from_payload(_ollama_http_json(f"{OLLAMA_HOST}/api/tags", timeout=10))
-    if local:
-        print(f"  Local Ollama: {len(local)} model(s)", flush=True)
-        _add(local)
-    else:
-        print("  Local Ollama unavailable (is `ollama serve` running?)", flush=True)
-
-    if _ollama_api_key():
-        print(f"  Listing Ollama cloud models ({OLLAMA_CLOUD})…", flush=True)
-        cloud = _tags_from_payload(_ollama_http_json(f"{OLLAMA_CLOUD}/api/tags", timeout=30))
-        if cloud:
-            # Prefer cloud-style tags; cap probe budget later
-            print(f"  Ollama cloud: {len(cloud)} model(s)", flush=True)
-            _add(cloud)
-        else:
-            print("  Ollama cloud list failed (check OLLAMA_API_KEY)", flush=True)
-    else:
-        print("  Skipping Ollama cloud — no API key (optional; local still used)", flush=True)
-
-    return out
+    print(f"  Listing Ollama Cloud models ({OLLAMA_CLOUD})…", flush=True)
+    cloud = _tags_from_payload(_ollama_http_json(f"{OLLAMA_CLOUD}/api/tags", timeout=30))
+    if cloud:
+        print(f"  Ollama Cloud: {len(cloud)} model(s)", flush=True)
+        return cloud
+    print("  Ollama Cloud list failed (check OLLAMA_API_KEY)", flush=True)
+    return []
 
 
 def _probe_ollama_model(name: str) -> bool:
-    """Health-check one Ollama model via local host, then ollama.com if keyed."""
-    body = {"model": name, "prompt": PROBE_PROMPT, "stream": False}
-    for base in (OLLAMA_HOST, OLLAMA_CLOUD if _ollama_api_key() else ""):
-        if not base:
-            continue
-        data = _ollama_http_json(
-            f"{base}/api/generate",
-            body=body,
-            timeout=OLLAMA_PROBE_TIMEOUT,
-        )
-        if data and bool((data.get("response") or "").strip()):
-            return True
-    return False
+    """Health-check one Ollama Cloud model via ollama.com generate API."""
+    if not _ollama_api_key():
+        return False
+    data = _ollama_http_json(
+        f"{OLLAMA_CLOUD}/api/generate",
+        body={"model": name, "prompt": PROBE_PROMPT, "stream": False},
+        timeout=OLLAMA_PROBE_TIMEOUT,
+    )
+    return bool(data and (data.get("response") or "").strip())
 
 
 def probe_ollama_models() -> list[str]:
-    """Probe discovered Ollama tags; return healthy bare tags."""
+    """Probe discovered Ollama Cloud tags; return healthy bare tags."""
     names = _ollama_list_models()
     if not names:
-        print("  No Ollama models found", flush=True)
         return []
 
-    # Prefer local-first order already; cap cloud-heavy lists
-    if len(names) > OLLAMA_CLOUD_PROBE_MAX and _ollama_api_key():
+    if len(names) > OLLAMA_CLOUD_PROBE_MAX:
         names = names[:OLLAMA_CLOUD_PROBE_MAX]
-        print(f"  Capping Ollama probes at {OLLAMA_CLOUD_PROBE_MAX}", flush=True)
+        print(f"  Capping Ollama Cloud probes at {OLLAMA_CLOUD_PROBE_MAX}", flush=True)
 
     total = len(names)
-    print(f"  Probing {total} Ollama model(s)…", flush=True)
+    print(f"  Probing {total} Ollama Cloud model(s)…", flush=True)
     healthy: list[str] = []
     for i, name in enumerate(names, 1):
         print(f"    [{i}/{total}] ollama/{name}...", end="", flush=True)
@@ -153,7 +128,7 @@ def _opencode_json_path() -> Path:
 
 
 def sync_ollama_models_to_opencode(healthy_names: list[str]) -> None:
-    """Write healthy Ollama tags into opencode.json provider.ollama.models."""
+    """Write healthy Ollama Cloud tags into opencode.json provider.ollama.models."""
     path = _opencode_json_path()
     cfg: dict = {}
     if path.is_file():
@@ -166,19 +141,15 @@ def sync_ollama_models_to_opencode(healthy_names: list[str]) -> None:
     provider = cfg.setdefault("provider", {})
     ollama = provider.setdefault("ollama", {})
     ollama["npm"] = ollama.get("npm") or "@ai-sdk/openai-compatible"
-    ollama["name"] = ollama.get("name") or "Ollama"
+    ollama["name"] = ollama.get("name") or "Ollama Cloud"
     options = ollama.setdefault("options", {})
-    local_up = _ollama_http_json(f"{OLLAMA_HOST}/api/tags", timeout=3) is not None
-    if _ollama_api_key() and not local_up:
-        options["baseURL"] = f"{OLLAMA_CLOUD}/v1"
-    else:
-        options["baseURL"] = f"{OLLAMA_HOST}/v1"
+    options["baseURL"] = f"{OLLAMA_CLOUD}/v1"
     ollama["models"] = {name: {"name": name} for name in healthy_names}
 
     try:
         path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
         print(
-            f"  Synced {len(healthy_names)} Ollama model(s) → {path} (provider.ollama)",
+            f"  Synced {len(healthy_names)} Ollama Cloud model(s) → {path} (provider.ollama)",
             flush=True,
         )
     except OSError as e:
@@ -574,15 +545,14 @@ def get_healthy_models(force_probe: bool = False) -> list[str]:
 
     if not user_data.find_opencode() and not _openrouter_api_key():
         print(
-            "  WARNING: No healthy models — configure Ollama, OpenRouter, "
+            "  WARNING: No healthy models — configure Ollama Cloud, OpenRouter, "
             f"or install OpenCode ({user_data.OPENCODE_INSTALL_URL}).",
             flush=True,
         )
     else:
         print(
             "  WARNING: No healthy models found!\n"
-            "    • Start local Ollama (`ollama serve`) and pull a model, or\n"
-            "    • Add an OpenRouter / Ollama Cloud key in Settings, or\n"
+            "    • Add an OpenRouter or Ollama Cloud key in Settings, or\n"
             "    • Ensure `opencode models` lists free models "
             "(OpenCode Zen / provider login may be required).",
             flush=True,
