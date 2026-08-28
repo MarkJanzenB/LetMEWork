@@ -14,9 +14,17 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 - Reuse last `search_config.json` when the model returns zero search queries
 - Cancel policy: discard scrape before scoring; keep jobs if cancel happens after scores are saved
 - Run-complete modal with new / updated / above-threshold counts (+ chime, respects reduced motion)
+- Parallel analyze (same pinned model, up to 3 workers); skip already-scored URLs on re-runs
 ### Changed
+- Calm dashboard — left sidebar nav/filters, cut metric funnel, leaner header
+- Higher-contrast text tokens so secondary labels stay readable on dark chrome
+- Settings: work-type checkboxes (Remote / Hybrid / On-site); scrape limited to selected boards + location
+- Sidebar source filter lists supported websites (not only discovered hosts)
 - Ollama provider is **Cloud-only** (`OLLAMA_API_KEY` → ollama.com); local `ollama serve` is no longer probed
 ### Fixed
+- Job-board selection is enforced in queries and scrape results (not prompt-only)
+- Foreign onsite/hybrid listings filtered out early when resume location is local (e.g. Philippines)
+- In-app update: download while you work, Restart now / Later, then silent Setup + relaunch
 ### Removed
 - Local Ollama daemon discovery/probing (`127.0.0.1:11434`)
 

@@ -27,21 +27,22 @@
     :root {
       /* palette */
       --mecha-black: #0a0a0c;
-      --mecha-black-alt: #121218;
-      --mecha-gray: #1e1e26;
-      --mecha-gray-light: #2a2a36;
-      --mecha-white: #eceff2;
-      --mecha-silver: #a3a3b4;
-      --mecha-muted: #7c7c8e;
+      --mecha-black-alt: #14141c;
+      --mecha-gray: #22222c;
+      --mecha-gray-light: #323240;
+      --mecha-white: #f3f4f7;
+      /* Secondary/muted must stay readable on black (WCAG-ish ~4.5:1+) */
+      --mecha-silver: #c9cad6;
+      --mecha-muted: #a3a4b5;
       --mecha-neon: #c4ff58;
       --mecha-neon-bright: #d4ff78;
       --mecha-neon-dim: rgba(196, 255, 88, 0.14);
       --mecha-neon-glow: rgba(196, 255, 88, 0.4);
-      --led-charging: #58ffb8;
-      --led-alert: #ff6b6b;
-      --led-propeller: #6ccfff;
-      --hairline: rgba(255, 255, 255, 0.07);
-      --hairline-strong: rgba(255, 255, 255, 0.14);
+      --led-charging: #6dffc4;
+      --led-alert: #ff8a8a;
+      --led-propeller: #7ad4ff;
+      --hairline: rgba(255, 255, 255, 0.12);
+      --hairline-strong: rgba(255, 255, 255, 0.22);
 
       /* type */
       --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
@@ -99,14 +100,14 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* grid overlay */
+    /* grid overlay — quieter secondary chrome */
     body::before {
       content: '';
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+        linear-gradient(rgba(255,255,255,0.008) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.008) 1px, transparent 1px);
       background-size: 50px 50px;
       pointer-events: none;
       z-index: 0;
@@ -117,7 +118,7 @@
       content: '';
       position: fixed;
       inset: 0;
-      opacity: 0.04;
+      opacity: 0.025;
       background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
       pointer-events: none;
       z-index: 0;
@@ -142,12 +143,163 @@
     * { scrollbar-width: thin; scrollbar-color: var(--mecha-gray) transparent; }
 
     /* ── layout ────────────────────────────────────────── */
-    .container {
+    .app-shell {
       position: relative;
       z-index: 1;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 4vw, 2rem);
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      gap: 0;
+      min-height: 100vh;
+      width: 100%;
+      padding: 0;
+      transition: grid-template-columns var(--transition-base);
+    }
+    .app-shell.sidebar-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+    .app-shell.sidebar-collapsed .sidebar {
+      overflow: hidden;
+      border-right-width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: var(--sp-4) var(--sp-3) var(--sp-5);
+      border-right: 1px solid var(--hairline);
+      background: var(--mecha-black-alt);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-4);
+    }
+
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .sidebar-section-title {
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--mecha-silver);
+      margin-bottom: var(--sp-2);
+    }
+
+    .sidebar-filters {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-2);
+    }
+    .sidebar-filters .filter-input,
+    .sidebar-filters .filter-select,
+    .sidebar-filters .btn {
+      width: 100%;
+    }
+    .sidebar-filters .filter-input { min-width: 0; flex: none; }
+    .sidebar-filters .filter-check { white-space: normal; }
+
+    .attention-strip {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+    .attention-strip[hidden] { display: none !important; }
+
+    .attn-chip {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      width: 100%;
+      height: 1.85rem;
+      padding: 0 var(--sp-3);
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--mecha-silver);
+      background: transparent;
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+    }
+    .attn-chip:hover {
+      color: var(--mecha-white);
+      border-color: var(--hairline-strong);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .attn-chip span {
+      font-variant-numeric: tabular-nums;
+      color: var(--mecha-neon);
+      font-weight: 600;
+      min-width: 1.25rem;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+    }
+
+    .main-column {
+      min-width: 0;
+      padding: clamp(1.25rem, 3vw, 2.25rem) clamp(1rem, 3vw, 2rem) clamp(2rem, 4vw, 3rem);
+    }
+
+    .sidebar-toggle {
+      display: none;
+      margin-bottom: var(--sp-3);
+    }
+    .app-shell.sidebar-collapsed .sidebar-toggle {
+      display: inline-flex;
+    }
+
+    .list-toolbar {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-3);
+      min-height: var(--control-h);
+    }
+    .list-toolbar .filter-count {
+      margin-left: 0;
+    }
+
+    .more-actions {
+      position: relative;
+    }
+    .more-actions > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+    .more-actions > summary::-webkit-details-marker { display: none; }
+    .more-actions-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 0.35rem);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      min-width: 11rem;
+      padding: var(--sp-2);
+      background: var(--mecha-black-alt);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-card);
+    }
+    .more-actions-menu .btn {
+      width: 100%;
+      justify-content: flex-start;
     }
 
     /* ── header ────────────────────────────────────────── */
@@ -281,12 +433,13 @@
     .btn-secondary--inactive {
       background: transparent;
       color: var(--mecha-silver);
-      border-color: transparent;
+      border-color: var(--hairline-strong);
     }
 
     .btn-secondary--inactive:hover:not(:disabled) {
       color: var(--mecha-white);
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.28);
     }
 
     .btn-ghost {
@@ -390,8 +543,8 @@
     }
 
     .btn-card--not_reviewed {
-      border-color: var(--mecha-gray-light);
-      color: var(--mecha-muted);
+      border-color: var(--hairline-strong);
+      color: var(--mecha-silver);
     }
 
     .listing-tag {
@@ -444,19 +597,7 @@
     .timeline-type { color: var(--led-propeller); font-weight: 600; }
     .timeline-detail { color: var(--mecha-silver); }
 
-    .funnel-group + .funnel-group {
-      margin-top: var(--sp-3);
-    }
-
-    .funnel-group-title {
-      font-size: var(--text-2xs);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--mecha-muted);
-      margin-bottom: var(--sp-1);
-    }
-
-    /* ── instrument cluster: pipeline + funnel ─────────── */
+    /* ── instrument cluster: pipeline ──────────────────── */
     .pipeline {
       margin-bottom: var(--sp-4);
       background: var(--mecha-black-alt);
@@ -624,46 +765,8 @@
     .pipeline-arrow {
       font-family: var(--font-mono);
       font-size: var(--text-xs);
-      color: var(--mecha-gray-light);
+      color: var(--mecha-muted);
     }
-
-    /* funnel cells share the cluster shell; equal-width cells, aligned numerals */
-    .funnel-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--sp-1);
-      padding: var(--sp-3) var(--sp-2);
-      background: var(--mecha-black);
-      border-radius: var(--radius-md);
-      border: 1px solid var(--hairline);
-      flex: 1 1 5rem;
-      min-width: 5rem;
-    }
-
-    .funnel-count {
-      font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 1.375rem;
-      line-height: 1.2;
-      font-variant-numeric: tabular-nums;
-      color: var(--mecha-neon);
-    }
-
-    .funnel-label {
-      font-family: var(--font-mono);
-      font-size: var(--text-2xs);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--mecha-silver);
-    }
-
-    .funnel-item:nth-child(2) .funnel-count { color: var(--led-charging); }
-    .funnel-item:nth-child(3) .funnel-count { color: var(--led-propeller); }
-    .funnel-item:nth-child(4) .funnel-count { color: var(--led-alert); }
-    .funnel-item:nth-child(5) .funnel-count { color: var(--mecha-silver); }
-    .funnel-item:nth-child(6) .funnel-count { color: var(--mecha-neon); }
-    .funnel-item:nth-child(7) .funnel-count { color: var(--mecha-muted); }
 
     @keyframes spin {
       to { transform: rotate(360deg); }
@@ -693,9 +796,9 @@
     }
 
     .banner-error {
-      background: rgba(255, 88, 88, 0.06);
-      border-color: rgba(255, 88, 88, 0.25);
-      color: var(--led-alert);
+      background: rgba(255, 107, 107, 0.12);
+      border-color: rgba(255, 138, 138, 0.45);
+      color: #ffb0b0;
     }
 
     #setup-warn-banner[hidden] { display: none !important; }
@@ -705,9 +808,9 @@
       justify-content: space-between;
       flex-wrap: wrap;
       gap: var(--sp-3);
-      background: rgba(255, 88, 88, 0.12);
-      border-color: rgba(255, 88, 88, 0.45);
-      color: var(--led-alert);
+      background: rgba(255, 107, 107, 0.14);
+      border-color: rgba(255, 138, 138, 0.55);
+      color: #ffc2c2;
       font-weight: 600;
     }
     #setup-warn-banner .setup-warn-text { flex: 1; min-width: 12rem; }
@@ -763,14 +866,14 @@
       cursor: pointer;
       appearance: none;
       -webkit-appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a3a3b4'/%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23c9cad6'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 0.8rem center;
       padding-right: 2.1rem;
     }
 
     .filter-input { flex: 1 1 12rem; min-width: 10rem; }
-    .filter-input::placeholder { color: var(--mecha-muted); }
+    .filter-input::placeholder { color: var(--mecha-silver); opacity: 0.75; }
 
     .filter-select:hover,
     .filter-input:hover { border-color: var(--hairline-strong); }
@@ -921,7 +1024,8 @@
       font-size: var(--text-2xs);
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: var(--mecha-muted);
+      font-weight: 600;
+      color: var(--mecha-silver);
       margin-left: auto;
     }
 
@@ -1006,7 +1110,7 @@
       margin-top: var(--sp-1);
     }
 
-    .job-company .sep { color: var(--mecha-gray-light); margin: 0 0.35rem; }
+    .job-company .sep { color: var(--mecha-muted); margin: 0 0.35rem; }
 
     /* collapsible details */
     .job-details { margin-top: var(--sp-3); }
@@ -1288,7 +1392,7 @@
     .form-hint {
       margin-top: var(--sp-2);
       font-size: var(--text-sm);
-      color: var(--mecha-muted);
+      color: var(--mecha-silver);
       line-height: 1.5;
     }
     .form-hint a { color: var(--mecha-neon); border-bottom: 1px solid transparent; }
@@ -1390,8 +1494,10 @@
 
     /* ── footer ────────────────────────────────────────── */
     .footer {
-      margin-top: var(--sp-7);
-      padding-top: var(--sp-5);
+      position: relative;
+      z-index: 1;
+      margin-top: 0;
+      padding: var(--sp-5) clamp(1rem, 3vw, 2rem) var(--sp-6);
       border-top: 1px solid var(--hairline);
       text-align: center;
     }
@@ -1401,12 +1507,12 @@
       font-size: var(--text-2xs);
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--mecha-muted);
+      color: var(--mecha-silver);
       line-height: 1.9;
     }
 
     .footer-text a {
-      color: var(--mecha-silver);
+      color: var(--mecha-white);
       transition: color var(--transition-fast);
     }
 
@@ -1417,57 +1523,65 @@
     .footer-divider {
       display: inline-block;
       margin: 0 0.4rem;
-      color: var(--mecha-gray-light);
+      color: var(--mecha-muted);
     }
 
-    /* ── tabs ──────────────────────────────────────────── */
+    /* ── tabs (sidebar vertical) ───────────────────────── */
     .status-tabs {
       display: flex;
-      gap: var(--sp-2);
-      border-bottom: 1px solid var(--hairline);
-      margin-bottom: var(--sp-4);
+      flex-direction: column;
+      gap: var(--sp-1);
+      border-bottom: none;
+      margin-bottom: 0;
     }
 
     .status-tab {
       display: inline-flex;
       align-items: center;
       gap: var(--sp-2);
+      width: 100%;
       height: var(--control-h);
       font-family: var(--font-mono);
       font-size: var(--text-xs);
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: 0 var(--sp-4);
+      padding: 0 var(--sp-3);
       background: none;
       border: none;
+      border-left: 2px solid transparent;
       color: var(--mecha-silver);
       cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-      transition: color var(--transition-fast), border-color var(--transition-fast);
+      margin-bottom: 0;
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      justify-content: flex-start;
+      transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
     }
 
     .status-tab:hover {
       color: var(--mecha-white);
+      background: rgba(255, 255, 255, 0.05);
     }
 
     .status-tab.active {
       color: var(--mecha-neon);
-      border-bottom-color: var(--mecha-neon);
+      border-left-color: var(--mecha-neon);
+      background: var(--mecha-neon-dim);
     }
 
     .status-tab .tab-count {
       font-size: var(--text-2xs);
       font-variant-numeric: tabular-nums;
-      background: var(--mecha-gray);
-      color: var(--mecha-silver);
+      font-weight: 600;
+      background: var(--mecha-gray-light);
+      color: var(--mecha-white);
       padding: 0.1rem 0.45rem;
       border-radius: var(--radius-pill);
       line-height: 1.5;
+      margin-left: auto;
     }
 
     .status-tab.active .tab-count {
-      background: var(--mecha-neon-dim);
+      background: rgba(196, 255, 88, 0.18);
       color: var(--mecha-neon);
     }
 
@@ -1649,11 +1763,11 @@
       font-size: var(--text-xs);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--mecha-muted);
+      color: var(--mecha-silver);
     }
     .detail-text {
       font-size: var(--text-sm);
-      color: var(--mecha-silver);
+      color: var(--mecha-white);
       line-height: 1.6;
       white-space: pre-wrap;
     }
@@ -1703,11 +1817,59 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    @media (max-width: 900px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .app-shell.sidebar-collapsed {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1200;
+        width: min(272px, 88vw);
+        height: 100vh;
+        transform: translateX(-105%);
+        transition: transform var(--transition-base);
+        opacity: 1;
+        pointer-events: auto;
+        border-right: 1px solid var(--hairline);
+      }
+      .app-shell.sidebar-open .sidebar {
+        transform: translateX(0);
+      }
+      .app-shell.sidebar-collapsed .sidebar {
+        overflow-y: auto;
+        opacity: 1;
+        pointer-events: auto;
+        padding-left: var(--sp-3);
+        padding-right: var(--sp-3);
+      }
+      .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        background: rgba(0, 0, 0, 0.55);
+        border: none;
+        padding: 0;
+        cursor: pointer;
+      }
+      .sidebar-backdrop[hidden] { display: none !important; }
+      .sidebar-toggle { display: inline-flex; }
+      .sidebar-head { display: none; }
+    }
+
     @media (max-width: 640px) {
       .header { flex-direction: column; align-items: flex-start; }
       .header-actions { width: 100%; flex-direction: column; align-items: stretch; }
       .header-actions .btn { width: 100%; }
-      .header-actions-group { justify-content: center; }
+      .header-actions-group { justify-content: center; width: 100%; }
+      .more-actions { width: 100%; }
+      .more-actions > summary { width: 100%; }
+      .more-actions-menu { left: 0; right: 0; width: 100%; }
       .pipeline-steps { gap: var(--sp-2); }
       .modal-panel { padding: var(--sp-4); }
     }
@@ -1730,8 +1892,9 @@
   <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
   <div id="update-banner" class="banner banner-update" hidden role="status">
     <span id="update-banner-text">Update available</span>
-    <button type="button" class="btn btn-primary btn-sm" id="update-now-btn" onclick="applyAppUpdate()">Update now</button>
-    <button type="button" class="btn btn-secondary--inactive btn-sm" onclick="dismissUpdateBanner()">Later</button>
+    <button type="button" class="btn btn-primary btn-sm" id="update-download-btn" onclick="downloadAppUpdate()">Download update</button>
+    <button type="button" class="btn btn-primary btn-sm" id="update-restart-btn" hidden onclick="installAppUpdate()">Restart now</button>
+    <button type="button" class="btn btn-secondary--inactive btn-sm" id="update-later-btn" onclick="dismissUpdateBanner()">Later</button>
   </div>
 
   <!-- First-run onboarding -->
@@ -1865,7 +2028,12 @@
         <legend class="form-label">Job boards to scrape</legend>
         <div id="set-sources" class="source-checks"></div>
       </fieldset>
-      <p class="form-hint">Unchecked boards are skipped on the next Run Agent. OnlineJobs.ph is off by default (account verification often blocks applying).</p>
+      <p class="form-hint">Unchecked boards are skipped on the next Run Agent (queries and results are filtered to these sites only). OnlineJobs.ph is off by default.</p>
+      <fieldset style="border:0;padding:0;margin:var(--sp-4) 0 0;">
+        <legend class="form-label">Work types to include</legend>
+        <div id="set-arrangements" class="source-checks"></div>
+      </fieldset>
+      <p class="form-hint">Only fetch roles matching these arrangements. Location stays tied to your resume (e.g. Philippines) — foreign onsite/hybrid listings are dropped before scoring.</p>
       <p id="settings-oc" class="form-hint" style="margin-top:var(--sp-4)"></p>
       <button type="button" id="set-oc-install" class="btn btn-secondary--inactive" style="display:none;margin-top:var(--sp-2);" onclick="installOpenCodeSoft('set')">
         Install OpenCode
@@ -1877,7 +2045,93 @@
     </div>
   </div>
 
-  <div class="container">
+  <div class="app-shell" id="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Navigation and filters">
+      <div class="sidebar-head">
+        <button type="button" id="sidebar-collapse" class="btn btn-ghost btn-sm" aria-label="Collapse sidebar">Collapse</button>
+      </div>
+      <nav class="status-tabs sidebar-nav" role="tablist" aria-label="Application status">
+        <button type="button" role="tab" class="status-tab active" data-tab="triage" id="tab-triage"
+                aria-selected="true" aria-controls="jobs-list" tabindex="0" onclick="setTab('triage')">
+          Triage <span class="tab-count" id="tab-count-triage">0</span>
+        </button>
+        <button type="button" role="tab" class="status-tab" data-tab="active" id="tab-active"
+                aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('active')"
+          title="Applied + Interviewing + Offer">
+          In progress <span class="tab-count" id="tab-count-active">0</span>
+        </button>
+        <button type="button" role="tab" class="status-tab" data-tab="resolved" id="tab-resolved"
+                aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('resolved')"
+          title="Hired + Rejected + Withdrawn + Skipped">
+          Resolved <span class="tab-count" id="tab-count-resolved">0</span>
+        </button>
+      </nav>
+      <div id="attention-strip" class="attention-strip" hidden>
+        <div class="sidebar-section-title">Needs attention</div>
+        <button type="button" class="attn-chip" data-attn="waiting" id="attn-waiting-btn" onclick="onAttnClick('waiting')">
+          <span id="attn-waiting">0</span> Follow-up
+        </button>
+        <button type="button" class="attn-chip" data-attn="expiring" id="attn-expiring-btn" onclick="onAttnClick('expiring')">
+          <span id="attn-expiring">0</span> Expiring
+        </button>
+        <button type="button" class="attn-chip" data-attn="stale" id="attn-stale-btn" onclick="onAttnClick('stale')">
+          <span id="attn-stale">0</span> Stale
+        </button>
+      </div>
+      <div class="sidebar-filters">
+        <div class="sidebar-section-title">Filters</div>
+        <label class="visually-hidden" for="search-input">Search jobs</label>
+        <input type="text" id="search-input" placeholder="Search jobs… ( / )"
+               oninput="onSearchInput()" class="filter-input" aria-label="Search jobs">
+        <label class="visually-hidden" for="filter-verdict">Verdict</label>
+        <select id="filter-verdict" onchange="renderJobs()" class="filter-select" aria-label="Filter by verdict">
+          <option value="all">All verdicts</option>
+          <option value="apply">Apply</option>
+          <option value="review">Review</option>
+          <option value="skip">Skip</option>
+        </select>
+        <label class="visually-hidden" for="filter-listing">Listing availability</label>
+        <select id="filter-listing" onchange="renderJobs()" class="filter-select" aria-label="Filter by listing availability">
+          <option value="all">Any listing</option>
+          <option value="active">Active</option>
+          <option value="stale">Stale</option>
+          <option value="expiring">Expiring</option>
+          <option value="expired">Expired</option>
+          <option value="closed">Closed</option>
+          <option value="not_accepting">Not Accepting</option>
+          <option value="unavailable">Unavailable</option>
+          <option value="unknown">Unknown</option>
+        </select>
+        <label class="visually-hidden" for="filter-source">Source</label>
+        <select id="filter-source" onchange="renderJobs()" class="filter-select" aria-label="Filter by source">
+          <option value="all">All sources</option>
+        </select>
+        <label class="visually-hidden" for="filter-age">Discovered</label>
+        <select id="filter-age" onchange="renderJobs()" class="filter-select" aria-label="Filter by discovery date">
+          <option value="all">Any time</option>
+          <option value="7">Discovered: last 7 days</option>
+          <option value="30">Discovered: last 30 days</option>
+          <option value="90">Discovered: last 90 days</option>
+        </select>
+        <label class="visually-hidden" for="sort-by">Sort</label>
+        <select id="sort-by" onchange="renderJobs()" class="filter-select" aria-label="Sort jobs">
+          <option value="recent">Recently Discovered</option>
+          <option value="updated">Recently Updated</option>
+          <option value="deadline">Deadline</option>
+          <option value="score-desc">Score: High → Low</option>
+          <option value="score-asc">Score: Low → High</option>
+          <option value="company-asc">Company: A → Z</option>
+        </select>
+        <label class="filter-check">
+          <input type="checkbox" id="hide-skips" onchange="onHideSkipsChange()" checked>
+          Hide AI skip verdicts
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="archiveVisibleSkips()">Archive skips</button>
+      </div>
+    </aside>
+    <button type="button" class="sidebar-backdrop" id="sidebar-backdrop" hidden aria-label="Close filters"></button>
+    <div class="main-column">
+    <button type="button" id="sidebar-toggle" class="btn btn-secondary--inactive sidebar-toggle" aria-controls="sidebar" aria-expanded="false">Filters</button>
 
     <!-- Header -->
     <header class="header">
@@ -1885,25 +2139,26 @@
         <h1 class="header-title">Let Me Work <span class="beta-badge" id="beta-badge">beta</span></h1>
         <p class="header-tagline">AI Job finder that matches your resume</p>
         <p id="last-run" class="header-meta"></p>
-        <p class="header-meta">Based on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">Kurt Chan's AI Job Hunt Agent</a> · <a href="https://github.com/MarkJanzenB/LetMEWork" target="_blank" rel="noopener noreferrer">Let Me Work</a> by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a></p>
       </div>
       <div class="header-actions" role="toolbar" aria-label="Actions">
         <div class="header-actions-group">
           <button type="button" id="settings-btn" onclick="openSettings()" class="btn btn-secondary--inactive">
             Settings
           </button>
-          <button id="tier-toggle" onclick="cycleTier()" class="btn btn-secondary--inactive" aria-label="Cycle score filter">
-            Score: All
-          </button>
-          <button id="bulk-apply-btn" onclick="bulkApply()" class="btn btn-secondary--inactive">
-            Bulk Apply
-          </button>
-          <button id="bulk-gen-btn" onclick="bulkGenerate()" class="btn btn-secondary--inactive" disabled>
-            Generate CLs
-          </button>
-          <button id="export-btn" onclick="exportCSV()" class="btn btn-secondary--inactive">
-            Export CSV
-          </button>
+          <details id="more-actions" class="more-actions">
+            <summary class="btn btn-secondary--inactive">More</summary>
+            <div class="more-actions-menu">
+              <button type="button" id="tier-toggle" onclick="cycleTier()" class="btn btn-secondary--inactive" aria-label="Cycle score filter">
+                Score: All
+              </button>
+              <button type="button" id="bulk-apply-btn" onclick="bulkApply()" class="btn btn-secondary--inactive">
+                Bulk Apply
+              </button>
+              <button type="button" id="export-btn" onclick="exportCSV()" class="btn btn-secondary--inactive">
+                Export CSV
+              </button>
+            </div>
+          </details>
         </div>
         <button id="run-btn" onclick="runAgent()" class="btn btn-primary">
           Run Agent
@@ -1957,90 +2212,6 @@
     <!-- Summary Banner -->
     <div id="summary-banner" class="banner banner-success" style="display:none;"></div>
 
-    <!-- Funnel Summary -->
-    <div id="funnel-summary" class="pipeline" style="display:none;">
-      <div class="funnel-group">
-        <div class="funnel-group-title">Actionable Metrics</div>
-        <div class="pipeline-steps">
-          <div class="funnel-item">
-            <span id="funnel-waiting" class="funnel-count">0</span>
-            <span class="funnel-label">Needs Follow-Up</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-expiring" class="funnel-count">0</span>
-            <span class="funnel-label">Expiring Soon</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-stale" class="funnel-count">0</span>
-            <span class="funnel-label">Stall Alert</span>
-          </div>
-        </div>
-      </div>
-      <div class="funnel-group">
-        <div class="funnel-group-title">Application</div>
-        <div class="pipeline-steps">
-          <div class="funnel-item">
-            <span id="funnel-not_reviewed" class="funnel-count">0</span>
-            <span class="funnel-label">Not Reviewed</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-skipped" class="funnel-count">0</span>
-            <span class="funnel-label">Skipped</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-applied" class="funnel-count">0</span>
-            <span class="funnel-label">Applied</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-interviewing" class="funnel-count">0</span>
-            <span class="funnel-label">Interviewing</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-offer" class="funnel-count">0</span>
-            <span class="funnel-label">Offer</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-hired" class="funnel-count">0</span>
-            <span class="funnel-label">Hired</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-rejected" class="funnel-count">0</span>
-            <span class="funnel-label">Rejected</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-withdrawn" class="funnel-count">0</span>
-            <span class="funnel-label">Withdrawn</span>
-          </div>
-        </div>
-      </div>
-      <div class="funnel-group">
-        <div class="funnel-group-title">Listing Availability</div>
-        <div class="pipeline-steps">
-          <div class="funnel-item">
-            <span id="funnel-l-active" class="funnel-count">0</span>
-            <span class="funnel-label">Active</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-l-closed" class="funnel-count">0</span>
-            <span class="funnel-label">Closed</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-l-not_accepting" class="funnel-count">0</span>
-            <span class="funnel-label">Not Accepting</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-l-unavailable" class="funnel-count">0</span>
-            <span class="funnel-label">Unavailable</span>
-          </div>
-          <div class="funnel-item">
-            <span id="funnel-l-unknown" class="funnel-count">0</span>
-            <span class="funnel-label">Unknown</span>
-          </div>
-        </div>
-      </div>
-      <p id="funnel-hint" class="form-hint" style="margin:var(--sp-3) 0 0;font-size:var(--text-2xs);"></p>
-    </div>
-
     <!-- Error Banner -->
     <div id="error-banner" class="banner banner-error" style="display:none;"></div>
 
@@ -2050,56 +2221,9 @@
       <span>Active run: <span class="step-label" id="run-status-step">Step 1</span> — <span id="run-status-label">Starting...</span></span>
     </div>
 
-    <!-- Filter Bar -->
-    <div class="filter-bar">
-      <label class="visually-hidden" for="search-input">Search jobs</label>
-      <input type="text" id="search-input" placeholder="Search jobs… ( / )"
-             oninput="onSearchInput()" class="filter-input" aria-label="Search jobs">
-      <label class="visually-hidden" for="filter-verdict">Verdict</label>
-      <select id="filter-verdict" onchange="renderJobs()" class="filter-select" aria-label="Filter by verdict">
-        <option value="all">All verdicts</option>
-        <option value="apply">Apply</option>
-        <option value="review">Review</option>
-        <option value="skip">Skip</option>
-      </select>
-      <label class="visually-hidden" for="filter-listing">Listing availability</label>
-      <select id="filter-listing" onchange="renderJobs()" class="filter-select" aria-label="Filter by listing availability">
-        <option value="all">Any listing</option>
-        <option value="active">Active</option>
-        <option value="stale">Stale</option>
-        <option value="expiring">Expiring</option>
-        <option value="expired">Expired</option>
-        <option value="closed">Closed</option>
-        <option value="not_accepting">Not Accepting</option>
-        <option value="unavailable">Unavailable</option>
-        <option value="unknown">Unknown</option>
-      </select>
-      <label class="visually-hidden" for="filter-source">Source</label>
-      <select id="filter-source" onchange="renderJobs()" class="filter-select" aria-label="Filter by source">
-        <option value="all">All sources</option>
-      </select>
-      <label class="visually-hidden" for="filter-age">Discovered</label>
-      <select id="filter-age" onchange="renderJobs()" class="filter-select" aria-label="Filter by discovery date">
-        <option value="all">Any time</option>
-        <option value="7">Discovered: last 7 days</option>
-        <option value="30">Discovered: last 30 days</option>
-        <option value="90">Discovered: last 90 days</option>
-      </select>
-      <label class="visually-hidden" for="sort-by">Sort</label>
-      <select id="sort-by" onchange="renderJobs()" class="filter-select" aria-label="Sort jobs">
-        <option value="recent">Recently Discovered</option>
-        <option value="updated">Recently Updated</option>
-        <option value="deadline">Deadline</option>
-        <option value="score-desc">Score: High → Low</option>
-        <option value="score-asc">Score: Low → High</option>
-        <option value="company-asc">Company: A → Z</option>
-      </select>
-      <label class="filter-check">
-        <input type="checkbox" id="hide-skips" onchange="onHideSkipsChange()" checked>
-        Hide skip verdicts
-      </label>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="archiveVisibleSkips()">Archive skips</button>
+    <div class="list-toolbar">
       <span id="job-count" class="filter-count"></span>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="clearListFilters()">Clear filters</button>
     </div>
 
     <div id="selection-bar" class="selection-bar" style="display:none;">
@@ -2118,27 +2242,12 @@
         <option value="withdrawn">Withdrawn</option>
         <!-- skipped/rejected need a reason — use per-card dropdown -->
       </select>
+      <button type="button" id="bulk-gen-btn" onclick="bulkGenerate()" class="btn btn-secondary--inactive btn-sm" disabled>
+        Generate CLs
+      </button>
       <button type="button" class="btn btn-ghost btn-sm" id="bulk-open-btn" onclick="bulkOpenSelected()" disabled>Open tabs</button>
       <button type="button" class="btn btn-secondary btn-sm" id="bulk-delete-btn" onclick="bulkSoftDelete()" disabled>Delete selected</button>
       <button type="button" class="btn btn-ghost btn-sm" onclick="clearSelection()">Clear</button>
-    </div>
-
-    <!-- Status Tabs -->
-    <div class="status-tabs" role="tablist" aria-label="Application status">
-      <button type="button" role="tab" class="status-tab active" data-tab="triage" id="tab-triage"
-              aria-selected="true" aria-controls="jobs-list" tabindex="0" onclick="setTab('triage')">
-        Triage <span class="tab-count" id="tab-count-triage">0</span>
-      </button>
-      <button type="button" role="tab" class="status-tab" data-tab="active" id="tab-active"
-              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('active')"
-        title="Applied + Interviewing + Offer">
-        Active <span class="tab-count" id="tab-count-active">0</span>
-      </button>
-      <button type="button" role="tab" class="status-tab" data-tab="resolved" id="tab-resolved"
-              aria-selected="false" aria-controls="jobs-list" tabindex="-1" onclick="setTab('resolved')"
-        title="Hired + Rejected + Withdrawn + Skipped">
-        Resolved <span class="tab-count" id="tab-count-resolved">0</span>
-      </button>
     </div>
 
     <!-- Jobs List -->
@@ -2218,20 +2327,21 @@
       </div>
     </div>
 
-    <footer class="footer">
-      <p class="footer-text">
-        Built on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">AI Job Hunt Agent</a>
-        <span class="footer-divider">&middot;</span>
-        Original by <a href="https://github.com/Kurt-Chan" target="_blank" rel="noopener noreferrer">Kurt Chan</a>
-        <span class="footer-divider">&middot;</span>
-        OpenCode Edition by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a>
-      </p>
-      <p class="footer-text" style="margin-top: 0.3rem;">
-        Free models when available &middot; Your API keys &middot; No Let Me Work account
-      </p>
-    </footer>
+    </div><!-- /.main-column -->
+  </div><!-- /.app-shell -->
 
-  </div>
+  <footer class="footer">
+    <p class="footer-text">
+      Built on <a href="https://github.com/Kurt-Chan/ai-job-scraper" target="_blank" rel="noopener noreferrer">AI Job Hunt Agent</a>
+      <span class="footer-divider">&middot;</span>
+      Original by <a href="https://github.com/Kurt-Chan" target="_blank" rel="noopener noreferrer">Kurt Chan</a>
+      <span class="footer-divider">&middot;</span>
+      OpenCode Edition by <a href="https://github.com/MarkJanzenB" target="_blank" rel="noopener noreferrer">Mark Janzen Bandola</a>
+    </p>
+    <p class="footer-text" style="margin-top: 0.3rem;">
+      Free models when available &middot; Your API keys &middot; No Let Me Work account
+    </p>
+  </footer>
 
   <script>
     let allJobs = [];
@@ -2266,13 +2376,10 @@
       candidate_pool: 'Candidate Pool', internal_candidate: 'Internal Candidate',
       unknown: 'Unknown',
     };
-    const APP_COUNT_KEYS = ['not_reviewed', 'skipped', 'applied', 'interviewing', 'offer', 'hired', 'rejected', 'withdrawn'];
-    const LISTING_COUNT_KEYS = ['active', 'closed', 'not_accepting', 'unavailable', 'unknown'];
-
     const TABS = [
-      { key: 'triage',   label: 'Triage',   filter: j => (j.application_status || 'not_reviewed') === 'not_reviewed' || j.is_saved === true },
-      { key: 'active',   label: 'Active',   filter: j => ['applied', 'interviewing', 'offer'].includes(j.application_status) },
-      { key: 'resolved', label: 'Resolved', filter: j => ['rejected', 'withdrawn', 'skipped', 'hired'].includes(j.application_status) },
+      { key: 'triage',   label: 'Triage',       filter: j => (j.application_status || 'not_reviewed') === 'not_reviewed' || j.is_saved === true },
+      { key: 'active',   label: 'In progress',  filter: j => ['applied', 'interviewing', 'offer'].includes(j.application_status) },
+      { key: 'resolved', label: 'Resolved',     filter: j => ['rejected', 'withdrawn', 'skipped', 'hired'].includes(j.application_status) },
     ];
     const tabOf = j => {
       const tab = TABS.find(t => t.filter(j));
@@ -2388,7 +2495,7 @@
       clearSelection();
       updateTabCounts();
       renderJobs();
-      updateFunnelSummary();
+      updateAttentionStrip();
       const label = statusLabel(status);
       showToast(`Updated ${ok} job${ok === 1 ? '' : 's'} → ${label}`);
     }
@@ -2463,7 +2570,7 @@
       }
       updateTabCounts();
       renderJobs();
-      updateFunnelSummary();
+      updateAttentionStrip();
       showToast(`Archived ${ok} skip job${ok === 1 ? '' : 's'} as Skipped.`);
     }
 
@@ -2487,7 +2594,7 @@
         if (detailFooter?.dataset.url === url) closeDetailPanel();
         updateTabCounts();
         renderJobs();
-        updateFunnelSummary();
+        updateAttentionStrip();
         if (undoToast) {
           const title = job?.title ? `“${job.title}”` : 'Job';
           showToast(`${title} deleted (won't reappear on scrape)`, {
@@ -2519,7 +2626,7 @@
         }
         updateTabCounts();
         renderJobs();
-        updateFunnelSummary();
+        updateAttentionStrip();
         showToast('Job restored.');
       } catch {
         showError('Failed to restore job.');
@@ -2646,52 +2753,32 @@
       });
     }
 
-    function statusCountsFromJobs() {
-      const app = {};
-      APP_COUNT_KEYS.forEach(k => { app[k] = 0; });
-      const listing = {};
-      LISTING_COUNT_KEYS.forEach(k => { listing[k] = 0; });
-      allJobs.forEach(j => {
-        const s = j.application_status || 'not_reviewed';
-        if (s in app) app[s]++; else app.not_reviewed++;
-        const ls = j.listing_status || 'unknown';
-        if (ls in listing) listing[ls]++; else listing.unknown++;
-      });
-      return { app, listing };
-    }
-
-    function updateFunnelSummary() {
-      const { app, listing } = statusCountsFromJobs();
-      const total = allJobs.length;
-      const funnel = document.getElementById('funnel-summary');
-      if (!total) {
-        funnel.style.display = 'none';
+    function updateAttentionStrip() {
+      const strip = document.getElementById('attention-strip');
+      if (!strip) return;
+      if (!allJobs.length) {
+        strip.hidden = true;
         return;
       }
-      funnel.style.display = '';
-      APP_COUNT_KEYS.forEach(k => {
-        const el = document.getElementById(`funnel-${k}`);
-        if (el) el.textContent = app[k];
-      });
-      LISTING_COUNT_KEYS.forEach(k => {
-        const el = document.getElementById(`funnel-l-${k}`);
-        if (el) el.textContent = listing[k];
-      });
-      
-      // Actionable Metrics (API emits signal_* from get_jobs_for_api)
-      document.getElementById('funnel-waiting').textContent =
-        allJobs.filter(j => j.signal_waiting === true).length;
-      document.getElementById('funnel-expiring').textContent =
-        allJobs.filter(j => j.signal_expiring === true).length;
-      document.getElementById('funnel-stale').textContent =
-        allJobs.filter(j => j.signal_stale === true).length;
+      strip.hidden = false;
+      const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+      set('attn-waiting', allJobs.filter(j => j.signal_waiting === true).length);
+      set('attn-expiring', allJobs.filter(j => j.signal_expiring === true).length);
+      set('attn-stale', allJobs.filter(j => j.signal_stale === true).length);
+    }
 
-      const hint = document.getElementById('funnel-hint');
-      if (hint) {
-        const closed = listing.closed + listing.not_accepting + listing.unavailable;
-        hint.textContent =
-          `${total} listings · listing: ${listing.active} active · ${closed} closed / unavailable`;
+    function onAttnClick(kind) {
+      if (kind === 'waiting') {
+        setTab('active');
+        document.getElementById('jobs-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
       }
+      const listing = document.getElementById('filter-listing');
+      if (!listing) return;
+      if (kind === 'expiring') listing.value = 'expiring';
+      else if (kind === 'stale') listing.value = 'stale';
+      else return;
+      renderJobs();
     }
 
     /* ── utils ───────────────────────────────────────────── */
@@ -3170,7 +3257,7 @@
         populateSourceFilter();
         updateTabCounts();
         renderJobs();
-        updateFunnelSummary();
+        updateAttentionStrip();
         checkRunStatus();
       } catch (e) {
         console.error('Failed to load jobs', e);
@@ -3359,8 +3446,6 @@
       footer.innerHTML = `
         <a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="btn btn-primary"
            data-detail-action="open"${safeHref === '#' ? ' aria-disabled="true"' : ''}>Open Listing ↗</a>
-        <button type="button" class="btn btn-secondary" data-detail-action="cl">Cover Letter</button>
-        <button type="button" class="btn btn-secondary" data-detail-action="save">${job.is_saved ? 'Unsave' : 'Save'}</button>
         <select class="status-dropdown ${statusCls(appStatus)}" data-detail-action="status"
                 aria-label="Application status">
           <option value="not_reviewed" ${appStatus === 'not_reviewed' ? 'selected' : ''}>Not Reviewed</option>
@@ -3407,15 +3492,6 @@
           }
           openListing(url);
           return;
-        }
-        if (action === 'cl') {
-          e.preventDefault();
-          openCL(url);
-          return;
-        }
-        if (action === 'save') {
-          e.preventDefault();
-          toggleSaved(url);
         }
       });
       footer.addEventListener('change', (e) => {
@@ -3532,7 +3608,7 @@
       if (!ordered.length) {
         const hiddenByFilters = inTab.length > 0;
         const skipHint = hideSkips && verdict === 'all'
-          ? ' Try unchecking Hide skips.'
+          ? ' Try unchecking Hide AI skip verdicts.'
           : '';
         list.innerHTML =
           `<div class="job-empty">
@@ -3578,10 +3654,19 @@
       const sel = document.getElementById('filter-source');
       if (!sel) return;
       const prev = sel.value;
-      const sources = [...new Set(allJobs.map(j => j.source).filter(Boolean))].sort();
+      const boards = supportedSources.length
+        ? supportedSources
+        : [];
+      // Always list supported websites; fall back to discovered hosts if API not loaded yet
+      let options = boards.map(b => ({ value: b.host, label: b.label }));
+      if (!options.length) {
+        const hosts = [...new Set(allJobs.map(j => j.source).filter(Boolean))].sort();
+        options = hosts.map(h => ({ value: h, label: h }));
+      }
       sel.innerHTML = '<option value="all">All sources</option>' +
-        sources.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-      sel.value = [...sources, 'all'].includes(prev) ? prev : 'all';
+        options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+      const values = options.map(o => o.value);
+      sel.value = [...values, 'all'].includes(prev) ? prev : 'all';
     }
 
     function clearListFilters() {
@@ -3616,9 +3701,6 @@
           sel.value = status;
           sel.className = cls;
         }
-        const saveBtn = footer.querySelector('[data-detail-action="save"]');
-        const job = allJobs.find(j => j.url === url);
-        if (saveBtn && job) saveBtn.textContent = job.is_saved ? 'Unsave' : 'Save';
       }
     }
 
@@ -3698,7 +3780,7 @@
           body: JSON.stringify(body)
         });
         if (!res.ok) throw new Error('server error');
-        updateFunnelSummary();
+        updateAttentionStrip();
         // Refresh timeline if detail panel is open for this job
         const timelineBox = document.querySelector(`#detail-content .job-timeline[data-url="${CSS.escape(url)}"]`);
         if (timelineBox) {
@@ -4375,23 +4457,44 @@
       }
     }
 
+    let supportedSources = []; // [{id, label, host}] from /api/setup/sources
+
     async function loadSourceChecks() {
       const box = document.getElementById('set-sources');
-      box.innerHTML = '';
+      const arrBox = document.getElementById('set-arrangements');
+      if (box) box.innerHTML = '';
+      if (arrBox) arrBox.innerHTML = '';
       const res = await fetch('/api/setup/sources');
       if (!res.ok) throw new Error('Could not load sources');
       const data = await res.json();
+      supportedSources = (data.boards || []).map(b => ({
+        id: b.id, label: b.label, host: b.host || (b.id || '').split('/')[0],
+      }));
       (data.boards || []).forEach(b => {
+        if (!box) return;
         const id = `src-${b.id.replace(/[^a-z0-9]+/gi, '-')}`;
         const label = document.createElement('label');
         label.innerHTML = `<input type="checkbox" id="${id}" data-board="${esc(b.id)}" ${b.enabled ? 'checked' : ''}> <span>${esc(b.label)}</span>`;
         box.appendChild(label);
       });
+      (data.work_arrangements || []).forEach(a => {
+        if (!arrBox) return;
+        const id = `arr-${a.id}`;
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" id="${id}" data-arrangement="${esc(a.id)}" ${a.enabled ? 'checked' : ''}> <span>${esc(a.label)}</span>`;
+        arrBox.appendChild(label);
+      });
+      populateSourceFilter();
     }
 
     function selectedJobBoards() {
       return [...document.querySelectorAll('#set-sources input[data-board]:checked')]
         .map(el => el.dataset.board);
+    }
+
+    function selectedWorkArrangements() {
+      return [...document.querySelectorAll('#set-arrangements input[data-arrangement]:checked')]
+        .map(el => el.dataset.arrangement);
     }
 
     let settingsOpener = null;
@@ -4432,10 +4535,12 @@
         }
         const boards = selectedJobBoards();
         if (!boards.length) throw new Error('Select at least one job board');
+        const arrangements = selectedWorkArrangements();
+        if (!arrangements.length) throw new Error('Select at least one work type (Remote / Hybrid / On-site)');
         const srcRes = await fetch('/api/setup/sources', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_boards: boards }),
+          body: JSON.stringify({ job_boards: boards, work_arrangements: arrangements }),
         });
         if (!srcRes.ok) {
           const err = await srcRes.json().catch(() => ({}));
@@ -4444,6 +4549,7 @@
         closeSettings();
         showToast('Settings saved locally.');
         await fetchSetupStatus();
+        try { await loadSourceChecks(); } catch { /* keep last known sources */ }
       } catch (e) {
         showToast(e.message || 'Save failed', { variant: 'error' });
       }
@@ -4538,42 +4644,132 @@
       document.getElementById('hide-skips').checked = hidePref === '1';
     }
 
+    function showUpdateBanner(info) {
+      const banner = document.getElementById('update-banner');
+      const text = document.getElementById('update-banner-text');
+      const dlBtn = document.getElementById('update-download-btn');
+      const rsBtn = document.getElementById('update-restart-btn');
+      if (!banner) return;
+      const ready = !!info.ready;
+      const ver = info.pending_version || info.latest || '';
+      if (text) {
+        text.textContent = ready
+          ? `Update ${ver} ready — restart to install (or keep working and restart later).`
+          : `Update ${info.latest || ''} available (you have ${info.current || 'this build'}).`;
+      }
+      if (dlBtn) dlBtn.hidden = ready;
+      if (rsBtn) rsBtn.hidden = !ready;
+      banner.hidden = false;
+    }
+
     async function checkForAppUpdate(st) {
       // Runs even during onboarding — fresh installs must see updates too.
       try {
         const res = await fetch('/api/update/check');
         if (!res.ok) return;
         const info = await res.json();
-        if (!info.update_available) return;
-        const banner = document.getElementById('update-banner');
-        const text = document.getElementById('update-banner-text');
-        if (text) {
-          text.textContent = `Update ${info.latest || ''} available (you have ${info.current || 'this build'}).`;
-        }
-        if (st && st.auto_update) {
-          await applyAppUpdate();
+        if (info.ready) {
+          showUpdateBanner(info);
           return;
         }
-        if (banner) banner.hidden = false;
+        if (!info.update_available) return;
+        if (st && st.auto_update) {
+          await downloadAppUpdate();
+          return;
+        }
+        showUpdateBanner(info);
       } catch { /* offline / feed unavailable */ }
     }
 
-    async function applyAppUpdate() {
+    function updateErrorMessage(detail) {
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(d => (d && (d.msg || d.message)) || String(d)).join('; ') || 'Update failed';
+      }
+      return 'Update failed';
+    }
+
+    async function downloadAppUpdate() {
       try {
-        showToast('Downloading update…');
-        const res = await fetch('/api/update/apply', { method: 'POST' });
+        showToast('Downloading update… (≈50 MB)', { duration: 12000 });
+        const res = await fetch('/api/update/download', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || 'Update failed');
-        showToast('Installer launching. Close this app after Setup finishes. SmartScreen may ask More info → Run anyway.');
+        if (!res.ok) throw new Error(updateErrorMessage(data.detail));
+        showUpdateBanner({
+          ready: true,
+          pending_version: data.version,
+          latest: data.version,
+          current: setupStatus?.version,
+        });
+        showToast(data.message || 'Download complete — restart when ready.', { duration: 8000 });
       } catch (e) {
-        showToast(e.message || 'Update failed', { variant: 'error', duration: 8000 });
+        showToast(e.message || 'Download failed', { variant: 'error', duration: 10000 });
+      }
+    }
+
+    async function installAppUpdate() {
+      try {
+        showToast('Installing update and relaunching…', { duration: 8000 });
+        const res = await fetch('/api/update/install', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(updateErrorMessage(data.detail));
+        showToast(data.message || 'Relaunching…', { duration: 10000 });
+      } catch (e) {
+        showToast(e.message || 'Install failed', { variant: 'error', duration: 10000 });
       }
     }
 
     function dismissUpdateBanner() {
       const banner = document.getElementById('update-banner');
       if (banner) banner.hidden = true;
+      // Pending download kept — banner returns next launch / check
     }
+
+    (function initSidebar() {
+      const shell = document.getElementById('app-shell');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      const toggle = document.getElementById('sidebar-toggle');
+      const collapse = document.getElementById('sidebar-collapse');
+      if (!shell) return;
+      const mq = window.matchMedia('(max-width: 900px)');
+
+      function applySidebarState() {
+        if (mq.matches) {
+          shell.classList.remove('sidebar-collapsed');
+          const open = localStorage.getItem('sidebarOpen') === '1';
+          shell.classList.toggle('sidebar-open', open);
+          if (backdrop) backdrop.hidden = !open;
+          if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        } else {
+          shell.classList.remove('sidebar-open');
+          if (backdrop) backdrop.hidden = true;
+          if (toggle) toggle.setAttribute('aria-expanded', 'false');
+          shell.classList.toggle('sidebar-collapsed', localStorage.getItem('sidebarCollapsed') === '1');
+        }
+      }
+
+      function setMobileOpen(open) {
+        localStorage.setItem('sidebarOpen', open ? '1' : '0');
+        applySidebarState();
+      }
+
+      toggle?.addEventListener('click', () => {
+        if (mq.matches) {
+          setMobileOpen(!shell.classList.contains('sidebar-open'));
+        } else {
+          localStorage.setItem('sidebarCollapsed', '0');
+          applySidebarState();
+        }
+      });
+      backdrop?.addEventListener('click', () => setMobileOpen(false));
+      collapse?.addEventListener('click', () => {
+        const next = localStorage.getItem('sidebarCollapsed') === '1' ? '0' : '1';
+        localStorage.setItem('sidebarCollapsed', next);
+        applySidebarState();
+      });
+      mq.addEventListener?.('change', applySidebarState);
+      applySidebarState();
+    })();
 
     (async () => {
       let st = null;
@@ -4596,6 +4792,7 @@
         }
       } catch { /* offline / first paint */ }
       checkForAppUpdate(st); // do not await — wizard stays interactive
+      try { await loadSourceChecks(); } catch { /* sources optional on first paint */ }
       loadJobs();
     })();
 

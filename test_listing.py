@@ -199,7 +199,12 @@ def test_analyze_jobs_writes_listing_fields_to_jobs_json(tmp_path, monkeypatch):
             "deadline_at": "2026-08-30",
         }
     ]
-    with patch.object(agent, "run_opencode_json", return_value=analyzed):
+    with (
+        patch.object(agent, "run_opencode_json", return_value=analyzed),
+        patch.object(agent, "_prior_scores_by_url", return_value={}),
+        patch.object(agent, "_init_models"),
+        patch.object(agent, "_next_model", return_value="test/model"),
+    ):
         result = agent.analyze_jobs()
 
     assert result[0]["listing_status"] == "closed"

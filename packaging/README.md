@@ -26,6 +26,14 @@ Attach both assets to each release:
 
 App checks `https://github.com/MarkJanzenB/LetMEWork/releases/latest/download/latest.json`. Settings: opt-in auto-update (default off) or banner + Update now. Use a non-prerelease GitHub Release so `/latest/` resolves.
 
+**In-app updates:**
+
+1. **Download** — Setup is fetched + checksummed while you keep working (`pending_update.json` in AppData).
+2. **Notify** — banner: Restart now, or Later (keeps working; prompt returns next launch).
+3. **Restart** — app exits → silent Setup with `/CLOSEAPPLICATIONS` → relaunches `%LOCALAPPDATA%\LetMeWork\LetMeWork.exe`.
+
+Start Menu shortcuts under `%AppData%\Microsoft\Windows\Start Menu\Programs\Let Me Work` stay valid. If an older build’s Update now is broken, close the app and run Setup from the [Releases](https://github.com/MarkJanzenB/LetMEWork/releases) page once.
+
 ## Dependencies the installer pulls in
 
 Post-install script (`install_opencode.ps1`):

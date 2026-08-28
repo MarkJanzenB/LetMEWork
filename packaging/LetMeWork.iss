@@ -30,6 +30,9 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 InfoBeforeFile=INFO_BEFORE.txt
 SetupLogging=yes
+; In-app update: Setup must close the running EXE before replacing it
+CloseApplications=force
+RestartApplications=yes
 VersionInfoVersion=0.1.0.4
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} — local AI job finder

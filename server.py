@@ -74,10 +74,18 @@ def _update_feed_url() -> str:
     )
 
 
+def _update_user_agent() -> str:
+    return f"LetMeWork/{config.APP_VERSION} (+https://github.com/MarkJanzenB/LetMEWork)"
+
+
 def _fetch_latest_manifest() -> dict:
     import urllib.request
 
-    with urllib.request.urlopen(_update_feed_url(), timeout=8) as resp:
+    req = urllib.request.Request(
+        _update_feed_url(),
+        headers={"User-Agent": _update_user_agent()},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -86,71 +94,232 @@ def _version_newer(latest: str, current: str) -> bool:
     return bool(latest) and latest.strip() != current.strip()
 
 
+def _installer_filename(url: str) -> str:
+    from urllib.parse import unquote, urlparse
+
+    name = Path(unquote(urlparse(str(url)).path)).name
+    return name if name.lower().endswith(".exe") else "LetMeWork-Setup.exe"
+
+
+def _load_pending_update() -> dict | None:
+    path = user_data.pending_update_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    installer = Path(str(data.get("path") or ""))
+    if not installer.is_file():
+        _clear_pending_update()
+        return None
+    ver = str(data.get("version") or "")
+    if not ver or not _version_newer(ver, config.APP_VERSION):
+        _clear_pending_update()
+        return None
+    return data
+
+
+def _save_pending_update(version: str, installer: Path, sha256: str) -> dict:
+    data = {
+        "version": version,
+        "path": str(installer),
+        "sha256": sha256,
+    }
+    user_data.pending_update_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return data
+
+
+def _clear_pending_update() -> None:
+    path = user_data.pending_update_path()
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _app_exe_for_relaunch() -> Path | None:
+    """Installed EXE to start after Setup (frozen path, else Local AppData install)."""
+    if user_data.is_frozen():
+        return Path(sys.executable).resolve()
+    local = Path(os.environ.get("LOCALAPPDATA", "")) / "LetMeWork" / "LetMeWork.exe"
+    return local if local.is_file() else None
+
+
+def _schedule_install_and_relaunch(installer: Path) -> None:
+    """After this PID exits: run Setup silently, then relaunch LetMeWork.exe."""
+    import subprocess
+
+    pid = os.getpid()
+    app = _app_exe_for_relaunch()
+    setup_js = json.dumps(str(installer))
+    app_js = json.dumps(str(app)) if app else '""'
+    # ponytail: silent Inno upgrade; SmartScreen may still prompt once before Setup starts
+    ps = (
+        f"while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) "
+        f"{{ Start-Sleep -Milliseconds 400 }}; "
+        f"Start-Sleep -Milliseconds 600; "
+        f"Start-Process -FilePath {setup_js} "
+        f"-ArgumentList '/SILENT','/CLOSEAPPLICATIONS','/FORCECLOSEAPPLICATIONS',"
+        f"'/NORESTART','/SUPPRESSMSGBOXES' -Wait; "
+        f"if ({app_js} -and (Test-Path -LiteralPath {app_js})) {{ "
+        f"Start-Process -FilePath {app_js} }}"
+    )
+    flags = 0
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) | getattr(
+            subprocess, "DETACHED_PROCESS", 0x00000008
+        )
+    subprocess.Popen(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            ps,
+        ],
+        close_fds=True,
+        creationflags=flags,
+    )
+
+
+def _download_installer_to_temp(url: str, expected_sha: str) -> Path:
+    import hashlib
+    import tempfile
+    import urllib.request
+
+    dest = Path(tempfile.gettempdir()) / _installer_filename(str(url))
+    digest = hashlib.sha256()
+    req = urllib.request.Request(str(url), headers={"User-Agent": _update_user_agent()})
+    with urllib.request.urlopen(req, timeout=120) as resp, dest.open("wb") as out:
+        while True:
+            chunk = resp.read(256 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            out.write(chunk)
+    got = digest.hexdigest()
+    if got != expected_sha:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError("Installer checksum mismatch — aborted")
+    return dest
+
+
 @app.get("/api/update/check")
 async def update_check():
-    """Compare APP_VERSION to latest.json on GitHub Releases (best-effort)."""
+    """Compare APP_VERSION to latest.json; report downloaded-but-not-installed pending."""
     import urllib.error
 
     current = config.APP_VERSION
+    pending = _load_pending_update()
     try:
         data = _fetch_latest_manifest()
         latest = str(data.get("version") or "")
+        available = _version_newer(latest, current)
         return {
-            "update_available": _version_newer(latest, current),
+            "update_available": available,
+            "ready": bool(pending),
             "current": current,
             "latest": latest or None,
+            "pending_version": (pending or {}).get("version"),
             "installer_url": data.get("installer_url"),
             "sha256": data.get("sha256"),
         }
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
         return {
-            "update_available": False,
+            "update_available": bool(pending),
+            "ready": bool(pending),
             "current": current,
+            "pending_version": (pending or {}).get("version"),
             "error": str(e),
         }
 
 
-@app.post("/api/update/apply")
-async def update_apply():
-    """Download Setup, verify sha256, launch installer, then quit this process."""
-    import hashlib
-    import subprocess
-    import tempfile
+@app.post("/api/update/download")
+async def update_download():
+    """Fetch Setup + verify sha256; keep running so user can Restart now or Later."""
     import urllib.error
-    import urllib.request
+
+    pending = _load_pending_update()
+    if pending:
+        return {
+            "ok": True,
+            "ready": True,
+            "version": pending.get("version"),
+            "path": pending.get("path"),
+            "message": "Update already downloaded — restart when ready.",
+        }
 
     try:
         data = _fetch_latest_manifest()
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
         raise HTTPException(status_code=502, detail=f"Could not fetch update manifest: {e}")
 
+    latest = str(data.get("version") or "")
     url = data.get("installer_url")
     expected = (data.get("sha256") or "").strip().lower()
-    if not url or not expected:
-        raise HTTPException(status_code=400, detail="Manifest missing installer_url or sha256")
+    if not url or not expected or not latest:
+        raise HTTPException(status_code=400, detail="Manifest missing version, installer_url, or sha256")
+    if not _version_newer(latest, config.APP_VERSION):
+        raise HTTPException(status_code=400, detail="Already on the latest version")
 
     try:
-        with urllib.request.urlopen(url, timeout=120) as resp:
-            blob = resp.read()
+        dest = _download_installer_to_temp(str(url), expected)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise HTTPException(status_code=502, detail=f"Download failed: {e}")
 
-    digest = hashlib.sha256(blob).hexdigest()
-    if digest != expected:
-        raise HTTPException(status_code=400, detail="Installer checksum mismatch — aborted")
+    saved = _save_pending_update(latest, dest, expected)
+    return {
+        "ok": True,
+        "ready": True,
+        "version": saved["version"],
+        "path": saved["path"],
+        "message": "Update downloaded. Restart now to install, or keep working and restart later.",
+    }
 
-    dest = Path(tempfile.gettempdir()) / (Path(str(url)).name or "LetMeWork-Setup.exe")
-    dest.write_bytes(blob)
-    subprocess.Popen([str(dest)], shell=False)
+
+@app.post("/api/update/install")
+async def update_install():
+    """Quit → silent Setup → relaunch updated EXE. Requires a prior download."""
+    import time
+
+    pending = _load_pending_update()
+    if not pending:
+        raise HTTPException(status_code=400, detail="No update downloaded — download first")
+
+    installer = Path(str(pending["path"]))
+    if not installer.is_file():
+        _clear_pending_update()
+        raise HTTPException(status_code=400, detail="Downloaded installer missing — download again")
+
+    _schedule_install_and_relaunch(installer)
 
     def _quit():
-        import time
-
-        time.sleep(1.5)
+        time.sleep(0.4)
         os._exit(0)
 
     threading.Thread(target=_quit, daemon=True).start()
-    return {"ok": True, "path": str(dest)}
+    return {
+        "ok": True,
+        "message": "Installing update and relaunching. SmartScreen may ask More info → Run anyway.",
+    }
+
+
+@app.post("/api/update/apply")
+async def update_apply():
+    """Back-compat: download if needed, then install + relaunch (forces restart)."""
+    pending = _load_pending_update()
+    if not pending:
+        await update_download()
+    return await update_install()
 
 
 class SaveJobBody(BaseModel):
@@ -402,7 +571,8 @@ async def upload_resume_pdf(file: UploadFile = File(...)):
 
 
 class SourcesBody(BaseModel):
-    job_boards: list[str]
+    job_boards: list[str] | None = None
+    work_arrangements: list[str] | None = None
 
 
 @app.get("/api/setup/sources")
@@ -413,7 +583,12 @@ async def get_sources():
 @app.post("/api/setup/sources")
 async def save_sources(body: SourcesBody):
     try:
-        config.save_job_boards(body.job_boards)
+        if body.job_boards is None and body.work_arrangements is None:
+            raise ValueError("Provide job_boards and/or work_arrangements")
+        config.save_search_prefs(
+            job_boards=body.job_boards,
+            work_arrangements=body.work_arrangements,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return config.sources_payload()

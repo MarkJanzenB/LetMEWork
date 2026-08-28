@@ -52,6 +52,12 @@ def settings_path() -> Path:
     return user_data_dir() / "settings.json"
 
 
+def pending_update_path() -> Path:
+    """Downloaded Setup waiting for restart (not the running EXE)."""
+    return user_data_dir() / "pending_update.json"
+
+
+
 def env_path() -> Path:
     return user_data_dir() / ".env"
 

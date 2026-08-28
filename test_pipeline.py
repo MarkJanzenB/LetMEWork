@@ -437,13 +437,19 @@ def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):
     (out / "raw_jobs.json").write_text(json.dumps(raw_jobs))
 
     analyzed = [{"title": "Dev", "url": "https://example.com", "score": 85, "verdict": "apply"}]
-    with patch.object(agent, "run_opencode_json", return_value=analyzed):
+    with (
+        patch.object(agent, "run_opencode_json", return_value=analyzed) as mock_json,
+        patch.object(agent, "_prior_scores_by_url", return_value={}),
+        patch.object(agent, "_init_models"),
+        patch.object(agent, "_next_model", return_value="test/model"),
+    ):
         result = agent.analyze_jobs()
 
     assert len(result) == 1
     assert result[0]["title"] == "Dev"
     assert result[0]["url"] == "https://example.com"
     assert json.loads((out / "jobs.json").read_text()) == result
+    assert mock_json.call_args.kwargs.get("model") == "test/model"
 
 
 def test_run_opencode_respects_attempt_budget(tmp_path, monkeypatch):
@@ -492,6 +498,82 @@ def test_invalidate_resume_profile_cache(tmp_path, monkeypatch):
     agent.invalidate_resume_profile_cache()  # idempotent
 
 
+def test_url_matches_enabled_boards():
+    import config
+
+    boards = ["indeed.com", "linkedin.com/jobs"]
+    assert config.url_matches_enabled_boards("https://ph.indeed.com/viewjob?jk=1", boards)
+    assert config.url_matches_enabled_boards("https://www.linkedin.com/jobs/view/123", boards)
+    assert not config.url_matches_enabled_boards("https://wellfound.com/jobs/1", boards)
+
+
+def test_filter_queries_to_boards():
+    import agent
+
+    boards = ["indeed.com", "jobstreet.com"]
+    qs = agent.filter_queries_to_boards(
+        [
+            'site:indeed.com Python Philippines',
+            'site:glassdoor.com Python USA',
+            'Python remote',  # no site:
+        ],
+        boards,
+    )
+    assert qs == ['site:indeed.com Python Philippines']
+
+
+def test_filter_jobs_by_prefs_drops_foreign_onsite():
+    import agent
+
+    profile = {"location": "Cebu City, Philippines", "timezone": "GMT+8"}
+    jobs = [
+        {"title": "Dev", "location": "Manila, Philippines", "url": "https://a"},
+        {"title": "Dev", "location": "Remote", "url": "https://b"},
+        {"title": "Dev", "location": "Bangalore, India", "url": "https://c"},
+        {"title": "Dev", "location": "New York, United States", "url": "https://d"},
+    ]
+    kept = agent.filter_jobs_by_prefs(jobs, profile, ["remote", "hybrid", "onsite"])
+    locs = {j["location"] for j in kept}
+    assert "Manila, Philippines" in locs
+    assert "Remote" in locs
+    assert "Bangalore, India" not in locs
+    assert "New York, United States" not in locs
+
+
+def test_filter_jobs_by_prefs_drops_foreign_hybrid():
+    import agent
+
+    profile = {"location": "Cebu City, Philippines", "timezone": "GMT+8"}
+    jobs = [
+        {"title": "Dev", "location": "Makati, Philippines", "work_arrangement": "hybrid"},
+        {"title": "Dev", "location": "London, United Kingdom", "work_arrangement": "hybrid"},
+        {"title": "Dev", "location": "Hybrid Remote — New York, United States", "work_arrangement": "hybrid"},
+        {"title": "Dev", "location": "Remote — Worldwide", "work_arrangement": "remote"},
+        {"title": "Dev", "location": "United States", "work_arrangement": "remote"},
+    ]
+    kept = agent.filter_jobs_by_prefs(jobs, profile, ["remote", "hybrid", "onsite"])
+    assert len(kept) == 3
+    locs = {j["location"] for j in kept}
+    assert "Makati, Philippines" in locs
+    assert "Remote — Worldwide" in locs
+    assert "United States" in locs  # pure remote abroad still OK
+    assert not any("London" in (j["location"] or "") for j in kept)
+    assert not any("New York" in (j["location"] or "") for j in kept)
+
+
+def test_filter_jobs_by_prefs_respects_remote_off():
+    import agent
+
+    profile = {"location": "Philippines"}
+    jobs = [
+        {"title": "Dev", "location": "Remote — Worldwide", "work_arrangement": "remote"},
+        {"title": "Dev", "location": "Cebu, Philippines", "work_arrangement": "onsite"},
+    ]
+    kept = agent.filter_jobs_by_prefs(jobs, profile, ["onsite"])
+    assert len(kept) == 1
+    assert kept[0]["work_arrangement"] == "onsite"
+
+
 def test_discard_run_removes_raw_and_orphans(tmp_path, monkeypatch):
     import db
 
@@ -510,6 +592,143 @@ def test_discard_run_removes_raw_and_orphans(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0
         row = conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
         assert row["status"] == "cancelled"
+
+
+def test_analyze_jobs_skips_already_scored(tmp_path, monkeypatch):
+    import agent
+    import config
+    from unittest.mock import patch
+
+    out = tmp_path / "output"
+    out.mkdir()
+    monkeypatch.setattr(config, "OUTPUT_DIR", out)
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    (tmp_path / "resume.md").write_text(
+        "# Experienced engineer with Python and systems work. "
+        "Remote-friendly, GMT+8 timezone, seeking full-stack roles.\n"
+    )
+    (out / "raw_jobs.json").write_text(
+        json.dumps(
+            [
+                {
+                    "title": "Old",
+                    "url": "https://ex.com/old",
+                    "company": "A",
+                    "listing_status": "closed",
+                },
+                {"title": "New", "url": "https://ex.com/new", "company": "B"},
+            ]
+        )
+    )
+    prior = {
+        agent._dedup_key("https://ex.com/old"): {
+            "url": "https://ex.com/old",
+            "title": "Old",
+            "company": "A",
+            "score": 70,
+            "verdict": "review",
+            "match_reasons": ["x"],
+            "red_flags": [],
+            "suggested_angle": "",
+            "work_arrangement": "remote",
+        }
+    }
+    analyzed = [
+        {
+            "title": "New",
+            "url": "https://ex.com/new",
+            "score": 90,
+            "verdict": "apply",
+            "match_reasons": [],
+            "red_flags": [],
+            "suggested_angle": "",
+        }
+    ]
+    with (
+        patch.object(agent, "_prior_scores_by_url", return_value=prior),
+        patch.object(agent, "run_opencode_json", return_value=analyzed) as mock_json,
+        patch.object(agent, "_init_models"),
+        patch.object(agent, "_next_model", return_value="test/model"),
+    ):
+        result = agent.analyze_jobs()
+
+    urls = {j["url"] for j in result}
+    assert urls == {"https://ex.com/old", "https://ex.com/new"}
+    old = next(j for j in result if j["url"].endswith("/old"))
+    assert old["score"] == 70
+    assert old["listing_status"] == "closed"  # refreshed from scrape
+    # Only the fresh job was sent to the model
+    assert mock_json.call_count == 1
+    sent = mock_json.call_args.kwargs.get("context") or mock_json.call_args[1].get("context", "")
+    if not sent and mock_json.call_args[0]:
+        # context is keyword-only in our call — also check args
+        pass
+    ctx = mock_json.call_args.kwargs["context"]
+    assert "https://ex.com/new" in ctx
+    assert "https://ex.com/old" not in ctx
+
+
+def test_analyze_jobs_runs_batches_in_parallel(tmp_path, monkeypatch):
+    import agent
+    import config
+    import time
+    from unittest.mock import patch
+
+    out = tmp_path / "output"
+    out.mkdir()
+    monkeypatch.setattr(config, "OUTPUT_DIR", out)
+    monkeypatch.setattr(config, "RESUME_FILE", tmp_path / "resume.md")
+    monkeypatch.setattr(agent, "ANALYZE_BATCH_SIZE", 1)
+    monkeypatch.setattr(agent, "ANALYZE_WORKERS", 3)
+    (tmp_path / "resume.md").write_text(
+        "# Experienced engineer with Python and systems work. "
+        "Remote-friendly, GMT+8 timezone, seeking full-stack roles.\n"
+    )
+    raw = [
+        {"title": f"J{i}", "url": f"https://ex.com/{i}", "company": "C"} for i in range(3)
+    ]
+    (out / "raw_jobs.json").write_text(json.dumps(raw))
+
+    active = {"n": 0, "peak": 0}
+    lock = __import__("threading").Lock()
+
+    def _slow_json(*_a, **_k):
+        with lock:
+            active["n"] += 1
+            active["peak"] = max(active["peak"], active["n"])
+        time.sleep(0.15)
+        url = "https://ex.com/0"
+        # return one job matching whatever; validator needs score fields
+        # Extract from context which url
+        ctx = _k.get("context", "")
+        for i in range(3):
+            if f"https://ex.com/{i}" in ctx:
+                url = f"https://ex.com/{i}"
+                break
+        with lock:
+            active["n"] -= 1
+        return [
+            {
+                "title": "J",
+                "url": url,
+                "score": 80,
+                "verdict": "apply",
+                "match_reasons": [],
+                "red_flags": [],
+                "suggested_angle": "",
+            }
+        ]
+
+    with (
+        patch.object(agent, "_prior_scores_by_url", return_value={}),
+        patch.object(agent, "run_opencode_json", side_effect=_slow_json),
+        patch.object(agent, "_init_models"),
+        patch.object(agent, "_next_model", return_value="test/model"),
+    ):
+        result = agent.analyze_jobs()
+
+    assert len(result) == 3
+    assert active["peak"] >= 2  # overlapped workers
 
 
 def test_run_pipeline_cancel_before_score_discards(tmp_path, monkeypatch):

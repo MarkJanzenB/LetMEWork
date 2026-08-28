@@ -24,20 +24,36 @@ _healthy_models: list[str] = []  # Loaded from cache or probed at startup
 _model_index = 0  # Rotation cursor
 _model_failures: dict[str, int] = {}  # Consecutive failures per model
 _pipeline_cancel = threading.Event()
-_current_opencode_proc: subprocess.Popen | None = None
+_active_opencode_procs: list[subprocess.Popen] = []
+_procs_lock = threading.Lock()
 
 
 def request_pipeline_cancel() -> None:
-    """Signal the active pipeline (and OpenCode child) to stop."""
+    """Signal the active pipeline (and all OpenCode children) to stop."""
     _pipeline_cancel.set()
-    proc = _current_opencode_proc
-    if proc is not None and proc.poll() is None:
-        _kill_process_tree(proc)
+    with _procs_lock:
+        procs = list(_active_opencode_procs)
+    for proc in procs:
+        if proc.poll() is None:
+            _kill_process_tree(proc)
 
 
 def _check_cancelled() -> None:
     if _pipeline_cancel.is_set():
         raise RuntimeError("Run cancelled by user")
+
+
+def _track_opencode_proc(proc: subprocess.Popen) -> None:
+    with _procs_lock:
+        _active_opencode_procs.append(proc)
+
+
+def _untrack_opencode_proc(proc: subprocess.Popen) -> None:
+    with _procs_lock:
+        try:
+            _active_opencode_procs.remove(proc)
+        except ValueError:
+            pass
 
 
 def _init_models() -> None:
@@ -166,9 +182,156 @@ def load_config() -> dict:
 
 
 def _sources_context(cfg: dict) -> str:
-    """Render the configured job boards as prompt context for build_queries.md."""
+    """Render boards + work arrangements + location rules for build_queries.md."""
     boards = "\n".join(f"- {b}" for b in cfg.get("job_boards", []))
-    return "\nJob boards to cover (one query each):\n" + boards
+    arr = cfg.get("work_arrangements") or ["remote", "hybrid", "onsite"]
+    arr_lines = "\n".join(f"- {a}" for a in arr)
+    return (
+        "\nJob boards to cover (exactly one search_queries entry per board, "
+        "each MUST include a matching site: prefix):\n"
+        + boards
+        + "\n\nAllowed work arrangements ONLY (do not invent others):\n"
+        + arr_lines
+        + "\n\nLocation policy: use the candidate's city/country from the profile. "
+        "Never target other countries' onsite/hybrid roles. "
+        "Only include unconstrained \"remote\" keywords when \"remote\" is in the "
+        "allowed work arrangements list above."
+    )
+
+
+def _query_targets_enabled_board(query: str, boards: list[str]) -> bool:
+    """True if query contains site:<enabled-board> (host match)."""
+    q = (query or "").lower()
+    hosts = config.enabled_board_hosts(boards)
+    if not hosts:
+        return False
+    # Prefer explicit site: filters from the model
+    if "site:" not in q:
+        return False
+    for host in hosts:
+        if f"site:{host}" in q or f"site:www.{host}" in q:
+            return True
+        # linkedin.com/jobs board id → site:linkedin.com/jobs or site:linkedin.com
+        for bid in boards:
+            if bid.lower() in q and f"site:{bid.lower().split('/')[0]}" in q:
+                return True
+    return False
+
+
+def filter_queries_to_boards(queries: list, boards: list[str] | None = None) -> list[str]:
+    """Drop LLM queries that don't target an enabled job board."""
+    boards = boards if boards is not None else load_config().get("job_boards", [])
+    kept = []
+    for q in queries or []:
+        qs = str(q).strip()
+        if not qs:
+            continue
+        if _query_targets_enabled_board(qs, boards):
+            kept.append(qs)
+        else:
+            print(f"  Dropped query (not on enabled boards): {qs[:80]}")
+    return kept
+
+
+# Home-country tokens derived from profile location (extend as needed)
+_FOREIGN_MARKERS = (
+    "united states", "u.s.a", "u.s.", " usa", "usa,", "usa ",
+    "canada", "united kingdom", " u.k", "uk,", " england", "london",
+    "australia", "sydney", "melbourne", "germany", "berlin", "france", "paris",
+    "india", "bangalore", "bengaluru", "hyderabad", "mumbai", "delhi",
+    "pakistan", "bangladesh", "nigeria", "kenya", "south africa",
+    "brazil", "mexico", "argentina", "japan", "tokyo", "korea", "seoul",
+    "china", "beijing", "shanghai", "taiwan", "hong kong",
+    "netherlands", "amsterdam", "ireland", "dublin", "sweden", "norway",
+    "poland", "spain", "italy", "dubai", "u.a.e", "saudi",
+    "new zealand", "singapore",  # SG often wrong for PH-local onsite
+)
+
+_REMOTE_MARKERS = (
+    "remote", "work from home", "wfh", "work-from-home", "anywhere",
+    "worldwide", "global remote", "fully remote",
+)
+
+
+def _home_geo_tokens(profile: dict | None) -> set[str]:
+    """Tokens that mean 'candidate's home geography'."""
+    text = " ".join(
+        str(profile.get(k) or "")
+        for k in ("location", "city", "country", "timezone", "base")
+        if profile
+    ).lower()
+    tokens = set()
+    if any(t in text for t in ("philippin", " cebu", "manila", "makati", "taguig",
+                               "pasig", "davao", "iloilo", "quezon", "ph,", " ph ",
+                               "gmt+8", "utc+8", "asia/manila")):
+        tokens.update({
+            "philippin", "philippines", "cebu", "manila", "makati", "taguig",
+            "pasig", "davao", "iloilo", "quezon", "luzon", "visayas", "mindanao",
+            "onlinejobs.ph",
+        })
+    # Always include raw location words longer than 3 chars
+    for w in re.findall(r"[a-z]{4,}", text):
+        tokens.add(w)
+    return tokens
+
+
+def _looks_remote(text: str) -> bool:
+    t = (text or "").lower()
+    return any(m in t for m in _REMOTE_MARKERS)
+
+
+def _looks_foreign_geo(location: str, home: set[str]) -> bool:
+    """True if location names a foreign country (home geo wins; remote words ignored)."""
+    loc = (location or "").lower().strip()
+    if not loc:
+        return False
+    if home and any(h in loc for h in home if len(h) >= 4):
+        return False
+    return any(m.strip() in loc for m in _FOREIGN_MARKERS)
+
+
+def filter_jobs_by_prefs(
+    jobs: list[dict],
+    profile: dict | None = None,
+    arrangements: list[str] | None = None,
+) -> list[dict]:
+    """Drop wrong-country onsite/hybrid and disallowed work arrangements early."""
+    arrangements = arrangements or load_config().get("work_arrangements") or [
+        "remote", "hybrid", "onsite",
+    ]
+    allow = set(arrangements)
+    allow_remote = "remote" in allow
+    home = _home_geo_tokens(profile)
+    kept: list[dict] = []
+    dropped = 0
+    for job in jobs:
+        loc = job.get("location") or ""
+        blob = f"{loc} {job.get('title') or ''} {job.get('description') or ''}"[:800]
+        blob_l = blob.lower()
+        wa = (job.get("work_arrangement") or "").lower().replace("-", " ")
+        remoteish = _looks_remote(blob) or "remote" in wa or wa in ("wfh", "work from home")
+        hybridish = "hybrid" in wa or "hybrid" in blob_l
+        onsiteish = "onsite" in wa or "on site" in wa or "on-site" in blob_l
+        # Pure remote abroad OK (if allowed); foreign hybrid/onsite never
+        remote_only = remoteish and not hybridish and not onsiteish
+        foreign = _looks_foreign_geo(loc, home)
+
+        if foreign and not remote_only:
+            dropped += 1
+            continue
+        if remoteish and not allow_remote:
+            dropped += 1
+            continue
+        if hybridish and "hybrid" not in allow and not remoteish:
+            dropped += 1
+            continue
+        if onsiteish and "onsite" not in allow and not remoteish and not hybridish:
+            dropped += 1
+            continue
+        kept.append(job)
+    if dropped:
+        print(f"  Filtered out {dropped} job(s) (location / work-arrangement prefs)")
+    return kept
 
 
 # ── step 0: build search config from resume ───────────────
@@ -176,17 +339,20 @@ def build_search_config(profile: dict | None = None) -> dict:
     """Ask opencode to extract search config from the resume."""
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
     profile_json = json.dumps(profile, indent=2) if profile else ""
+    cfg = load_config()
     context = (
-        _sources_context(load_config())
+        _sources_context(cfg)
         + f"\n\n=== STRUCTURED PROFILE ===\n{profile_json}\n=== END PROFILE ==="
         + f"\n\n=== RAW RESUME ===\n{resume}\n=== END RESUME ==="
     )
     result = run_opencode_json("prompts/build_queries.md", context=context)
+    queries = filter_queries_to_boards(result.get("search_queries") or [], cfg.get("job_boards"))
+    result["search_queries"] = queries
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (config.OUTPUT_DIR / "search_config.json").write_text(json.dumps(result, indent=2))
     print(f"  Roles: {result.get('target_roles')}")
     print(f"  Skills: {result.get('key_skills')}")
-    print(f"  Queries ({len(result.get('search_queries', []))}): ready")
+    print(f"  Queries ({len(queries)}): ready (enabled boards only)")
     return result
 
 
@@ -253,6 +419,8 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
             for r in response.web or []:
                 url = r.url
                 if not url or not db.is_safe_http_url(url) or _dedup_key(url) in seen_urls:
+                    continue
+                if not config.url_matches_enabled_boards(url):
                     continue
                 seen_urls.add(_dedup_key(url))
                 hits.append(
@@ -471,8 +639,17 @@ class _FirecrawlFailover:
         return self._call("scrape", *args, **kwargs)
 
 
-def scrape_jobs(search_queries: list[str]) -> list[dict]:
+def scrape_jobs(search_queries: list[str], profile: dict | None = None) -> list[dict]:
     import user_data
+
+    cfg = load_config()
+    boards = cfg.get("job_boards") or []
+    search_queries = filter_queries_to_boards(search_queries, boards)
+    if not search_queries:
+        raise RuntimeError(
+            "No search queries left after filtering to enabled job boards — "
+            "check Settings → Job boards."
+        )
 
     app = _FirecrawlFailover(user_data.firecrawl_api_keys())
 
@@ -485,12 +662,16 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
     deleted_keys = {_dedup_key(u) for u in db.get_soft_deleted_urls()}
     seen_urls: set[str] = set(deleted_keys)
     skipped_deleted = 0
+    skipped_board = 0
     jobs: list[dict] = []
     for page in pages[: config.MAX_PAGES_TO_SCRAPE]:
         print(f"  Scraping: {page['url'][:70]}...")
         for job in extract_postings(app, page):
             url = job["url"]
             if not url:
+                continue
+            if not config.url_matches_enabled_boards(url, boards):
+                skipped_board += 1
                 continue
             key = _dedup_key(url)
             if key in seen_urls:
@@ -502,6 +683,9 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
 
     if skipped_deleted:
         print(f"  Skipped {skipped_deleted} soft-deleted posting(s)")
+    if skipped_board:
+        print(f"  Skipped {skipped_board} posting(s) outside enabled job boards")
+    jobs = filter_jobs_by_prefs(jobs, profile, cfg.get("work_arrangements"))
     return jobs
 
 
@@ -676,7 +860,6 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
             selected_model = _get_healthy_model()
 
         print(f"  [Attempt {total_attempts}/{config.MAX_OPENCODE_ATTEMPTS}] Using model: {selected_model}")
-        global _current_opencode_proc
         argv = user_data.opencode_argv(
             "run", prompt, "--agent", "job-agent", "--model", selected_model
         )
@@ -692,7 +875,7 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
             cwd=oc_cwd,
             env=oc_env,
         )
-        _current_opencode_proc = proc
+        _track_opencode_proc(proc)
 
         stdout_chunks: list[str] = []
         start_time = time.monotonic()
@@ -829,8 +1012,7 @@ def run_opencode(prompt_file: str, context: str = "", model: str = None) -> str:
             _kill_process_tree(proc)
             raise
         finally:
-            if _current_opencode_proc is proc:
-                _current_opencode_proc = None
+            _untrack_opencode_proc(proc)
 
     raise RuntimeError(
         f"OpenCode failed after {config.MAX_OPENCODE_ATTEMPTS} attempts"
@@ -927,9 +1109,9 @@ def _validate_job_scores(data: list[dict]) -> list[dict]:
     return valid_jobs
 
 
-def run_opencode_json(prompt_file: str, context: str = ""):
+def run_opencode_json(prompt_file: str, context: str = "", model: str | None = None):
     """Run an opencode prompt that must return JSON, and parse it."""
-    raw = run_opencode(prompt_file, context)
+    raw = run_opencode(prompt_file, context, model=model)
     if not raw:
         raise RuntimeError(f"OpenCode returned empty output for {prompt_file}")
     try:
@@ -942,24 +1124,88 @@ def run_opencode_json(prompt_file: str, context: str = ""):
 
 # ── step 2: analyze scraped jobs via opencode ─────────────
 ANALYZE_BATCH_SIZE = 30  # jobs per model call — keeps context small enough for free models
+ANALYZE_WORKERS = 3  # same-model parallel batches; cancel kills all tracked procs
+
+
+def _prior_scores_by_url() -> dict[str, dict]:
+    """Map url_dedup_key → latest scored job row (for skip-already-scored)."""
+    out: dict[str, dict] = {}
+    for job in db.get_latest_scores():
+        url = job.get("url") or ""
+        if url:
+            out[_dedup_key(url)] = job
+    return out
+
+
+def _carry_prior_score(raw: dict, prior: dict) -> dict:
+    """Reuse prior LLM score; refresh listing/identity fields from this scrape."""
+    return {
+        "url": raw.get("url") or prior.get("url", ""),
+        "title": raw.get("title") or prior.get("title", ""),
+        "company": raw.get("company") or prior.get("company", ""),
+        "location": raw.get("location") or prior.get("location", ""),
+        "description": raw.get("description") or prior.get("description", ""),
+        "source": raw.get("source") or prior.get("source", ""),
+        "posted_date": raw.get("posted_date") or prior.get("posted_date", ""),
+        "listing_status": raw.get("listing_status") or prior.get("listing_status"),
+        "deadline_at": raw.get("deadline_at") or prior.get("deadline_at"),
+        "source_job_id": (raw.get("source_job_id") or prior.get("source_job_id") or "").strip(),
+        "score": prior.get("score"),
+        "verdict": prior.get("verdict"),
+        "work_arrangement": prior.get("work_arrangement", ""),
+        "match_reasons": prior.get("match_reasons") or [],
+        "red_flags": prior.get("red_flags") or [],
+        "suggested_angle": prior.get("suggested_angle", ""),
+    }
 
 
 def analyze_jobs(profile: dict | None = None) -> list[dict]:
-    """Run opencode analysis on raw_jobs.json in batches, then merge."""
+    """Run opencode analysis on raw_jobs.json in parallel batches, then merge.
+
+    URLs that already have a score are skipped (listing fields still refreshed).
+    Batches share one pinned model id (ANALYZE_WORKERS concurrent).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     raw_jobs = json.loads((config.OUTPUT_DIR / "raw_jobs.json").read_text(encoding="utf-8"))
     resume = config.RESUME_FILE.read_text(encoding="utf-8")
     profile_json = json.dumps(profile, indent=2) if profile else ""
     today = datetime.now().strftime("%Y-%m-%d")
-    all_scored: list[dict] = []
+    prior = _prior_scores_by_url()
+
+    fresh: list[dict] = []
+    carried: list[dict] = []
+    for job in raw_jobs:
+        key = _dedup_key(job.get("url", "")) if job.get("url") else ""
+        if key and key in prior:
+            carried.append(_carry_prior_score(job, prior[key]))
+        else:
+            fresh.append(job)
+
+    if carried:
+        print(f"  Skipping {len(carried)} already-scored job(s); analyzing {len(fresh)} new")
+
+    all_scored: list[dict] = list(carried)
+    if not fresh:
+        if not all_scored:
+            raise ValueError("No jobs to analyze")
+        config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        (config.OUTPUT_DIR / "jobs.json").write_text(json.dumps(all_scored, indent=2))
+        return all_scored
 
     batches = [
-        raw_jobs[i : i + ANALYZE_BATCH_SIZE] for i in range(0, len(raw_jobs), ANALYZE_BATCH_SIZE)
+        fresh[i : i + ANALYZE_BATCH_SIZE] for i in range(0, len(fresh), ANALYZE_BATCH_SIZE)
     ]
+    _init_models()
+    pinned = _next_model()
+    workers = max(1, min(ANALYZE_WORKERS, len(batches)))
     print(
-        f"  Analyzing {len(raw_jobs)} jobs in {len(batches)} batch(es) of ≤{ANALYZE_BATCH_SIZE}..."
+        f"  Analyzing {len(fresh)} jobs in {len(batches)} batch(es) "
+        f"(≤{ANALYZE_BATCH_SIZE}/batch, {workers} worker(s), model={pinned})..."
     )
 
-    for idx, batch in enumerate(batches, 1):
+    def _run_batch(idx: int, batch: list[dict]) -> list[dict]:
+        _check_cancelled()
         print(f"  Batch {idx}/{len(batches)} ({len(batch)} jobs)...")
         context = (
             f"Today's date is {today}.\n"
@@ -968,14 +1214,25 @@ def analyze_jobs(profile: dict | None = None) -> list[dict]:
             f"\n=== JOBS (batch {idx} of {len(batches)}) ===\n"
             f"{json.dumps(batch, indent=2)}\n=== END JOBS ==="
         )
-        try:
-            scored = run_opencode_json("prompts/analyze.md", context=context)
-            all_scored.extend(scored)
-            print(f"    → {len(scored)} jobs scored from batch {idx}")
-        except Exception as e:
-            print(f"    → Batch {idx} failed: {e} — skipping")
+        scored = run_opencode_json("prompts/analyze.md", context=context, model=pinned)
+        print(f"    → {len(scored)} jobs scored from batch {idx}")
+        return scored if isinstance(scored, list) else []
 
-    all_scored = _validate_job_scores(all_scored)
+    new_scored: list[dict] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(_run_batch, i, b): i for i, b in enumerate(batches, 1)}
+        for fut in as_completed(futs):
+            _check_cancelled()
+            try:
+                new_scored.extend(fut.result())
+            except Exception as e:
+                print(f"    → Batch {futs[fut]} failed: {e} — skipping")
+
+    if new_scored:
+        all_scored.extend(_validate_job_scores(new_scored))
+    elif not carried:
+        raise ValueError("No valid jobs found in AI output")
+
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (config.OUTPUT_DIR / "jobs.json").write_text(json.dumps(all_scored, indent=2))
     return all_scored
@@ -1100,23 +1357,26 @@ def run_pipeline(on_progress=None) -> dict:
             q for q in (search_config.get("search_queries") or []) if str(q).strip()
         ]
         if not search_queries:
-            prev_qs = [
-                q for q in ((prev_config or {}).get("search_queries") or []) if str(q).strip()
-            ]
+            boards = load_config().get("job_boards") or []
+            prev_qs = filter_queries_to_boards(
+                [q for q in ((prev_config or {}).get("search_queries") or []) if str(q).strip()],
+                boards,
+            )
             if prev_qs:
-                print("  Warning: model returned no queries — reusing last search_config.json")
-                search_config = prev_config
+                print("  Warning: model returned no queries — reusing last search_config.json (boards-filtered)")
+                search_config = {**(prev_config or {}), "search_queries": prev_qs}
                 search_queries = prev_qs
                 prev_queries_path.write_text(json.dumps(search_config, indent=2))
             else:
                 raise RuntimeError(
-                    "No search queries generated — check resume quality or prompts/build_queries.md"
+                    "No search queries generated — check resume quality, enabled job boards, "
+                    "or prompts/build_queries.md"
                 )
         emit(1, "Building search config", "done")
 
         _check_cancelled()
         emit(2, "Scraping jobs", "running")
-        jobs = scrape_jobs(search_queries)
+        jobs = scrape_jobs(search_queries, profile)
         if not jobs:
             raise RuntimeError("No jobs found — check your FIRECRAWL_API_KEY or search queries.")
         (config.OUTPUT_DIR / "raw_jobs.json").write_text(json.dumps(jobs, indent=2))
@@ -1126,6 +1386,7 @@ def run_pipeline(on_progress=None) -> dict:
         _check_cancelled()
         emit(3, "Analyzing & scoring", "running")
         all_jobs = analyze_jobs(profile)
+        all_jobs = filter_jobs_by_prefs(all_jobs, profile)
         _stamp_listing_metadata(all_jobs)
         upsert_stats = db.save_pipeline_output(all_jobs, run_id) or upsert_stats
         scored = True
@@ -1166,9 +1427,9 @@ def run_pipeline(on_progress=None) -> dict:
             )
         raise
     finally:
-        global _current_opencode_proc
         _pipeline_cancel.clear()
-        _current_opencode_proc = None
+        with _procs_lock:
+            _active_opencode_procs.clear()
 
 
 # ── main pipeline ─────────────────────────────────────────

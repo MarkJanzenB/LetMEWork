@@ -151,6 +151,12 @@ AVAILABLE_JOB_BOARDS = [
     {"id": "glassdoor.com", "label": "Glassdoor"},
 ]
 
+AVAILABLE_WORK_ARRANGEMENTS = [
+    {"id": "remote", "label": "Remote / WFH"},
+    {"id": "hybrid", "label": "Hybrid"},
+    {"id": "onsite", "label": "On-site"},
+]
+
 DEFAULT_CONFIG = {
     "job_boards": [
         "linkedin.com/jobs",
@@ -159,6 +165,8 @@ DEFAULT_CONFIG = {
         "glassdoor.com",
         "jobstreet.com",
     ],
+    # All on by default so existing installs keep prior breadth until user narrows
+    "work_arrangements": ["remote", "hybrid", "onsite"],
 }
 
 
@@ -181,41 +189,108 @@ def load_search_config() -> dict:
                 pass
             break
     cfg.pop("reddit_groups", None)
+    # Normalize arrangements if missing/legacy
+    arr = cfg.get("work_arrangements")
+    if not isinstance(arr, list) or not arr:
+        cfg["work_arrangements"] = list(DEFAULT_CONFIG["work_arrangements"])
     return cfg
 
 
-def save_job_boards(boards: list[str]) -> dict:
-    """Persist enabled job boards. Always writes AppData config.json."""
-    global CONFIG_FILE
-    allowed = {b["id"] for b in AVAILABLE_JOB_BOARDS}
-    cleaned = []
-    for b in boards:
-        if not isinstance(b, str) or not b.strip():
-            continue
-        bid = b.strip()
-        if bid not in allowed:
-            raise ValueError(f"Unknown job board: {bid}")
-        if bid not in cleaned:
-            cleaned.append(bid)
-    if not cleaned:
-        raise ValueError("Select at least one job board")
+def board_id_to_host(board_id: str) -> str:
+    """linkedin.com/jobs → linkedin.com; indeed.com → indeed.com."""
+    return board_id.strip().lower().split("/")[0].removeprefix("www.")
 
+
+def enabled_board_hosts(boards: list[str] | None = None) -> set[str]:
+    boards = boards if boards is not None else load_search_config().get("job_boards", [])
+    return {board_id_to_host(b) for b in boards if isinstance(b, str) and b.strip()}
+
+
+def url_matches_enabled_boards(url: str, boards: list[str] | None = None) -> bool:
+    """True if URL host matches an enabled job board (regional prefixes OK)."""
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(url.strip()).netloc
+    except Exception:
+        return False
+    if not host:
+        return False
+    # Collapse www / regional subdomain the same way scrape does
+    from db import _canonical_host
+
+    return _canonical_host(host) in enabled_board_hosts(boards)
+
+
+def save_search_prefs(
+    job_boards: list[str] | None = None,
+    work_arrangements: list[str] | None = None,
+) -> dict:
+    """Persist job boards and/or work arrangements to AppData config.json."""
+    global CONFIG_FILE
     cfg = load_search_config()
-    cfg["job_boards"] = cleaned
+
+    if job_boards is not None:
+        allowed = {b["id"] for b in AVAILABLE_JOB_BOARDS}
+        cleaned = []
+        for b in job_boards:
+            if not isinstance(b, str) or not b.strip():
+                continue
+            bid = b.strip()
+            if bid not in allowed:
+                raise ValueError(f"Unknown job board: {bid}")
+            if bid not in cleaned:
+                cleaned.append(bid)
+        if not cleaned:
+            raise ValueError("Select at least one job board")
+        cfg["job_boards"] = cleaned
+
+    if work_arrangements is not None:
+        allowed_a = {a["id"] for a in AVAILABLE_WORK_ARRANGEMENTS}
+        cleaned_a = []
+        for a in work_arrangements:
+            if not isinstance(a, str) or not a.strip():
+                continue
+            aid = a.strip().lower()
+            if aid not in allowed_a:
+                raise ValueError(f"Unknown work arrangement: {aid}")
+            if aid not in cleaned_a:
+                cleaned_a.append(aid)
+        if not cleaned_a:
+            raise ValueError("Select at least one work type (Remote / Hybrid / On-site)")
+        cfg["work_arrangements"] = cleaned_a
+
     path = writable_config_path()
     path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     CONFIG_FILE = path
     return cfg
 
 
+def save_job_boards(boards: list[str]) -> dict:
+    """Persist enabled job boards. Always writes AppData config.json."""
+    return save_search_prefs(job_boards=boards)
+
+
 def sources_payload() -> dict:
     cfg = load_search_config()
     enabled = set(cfg.get("job_boards", []))
+    enabled_arr = set(cfg.get("work_arrangements", []))
     return {
         "boards": [
-            {**b, "enabled": b["id"] in enabled} for b in AVAILABLE_JOB_BOARDS
+            {
+                **b,
+                "enabled": b["id"] in enabled,
+                "host": board_id_to_host(b["id"]),
+            }
+            for b in AVAILABLE_JOB_BOARDS
         ],
         "job_boards": list(cfg.get("job_boards", [])),
+        "work_arrangements": [
+            {**a, "enabled": a["id"] in enabled_arr} for a in AVAILABLE_WORK_ARRANGEMENTS
+        ],
+        "enabled_work_arrangements": list(cfg.get("work_arrangements", [])),
         "config_path": str(writable_config_path()),
     }
 

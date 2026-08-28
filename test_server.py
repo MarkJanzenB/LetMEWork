@@ -548,19 +548,33 @@ def test_sources_get_and_save(client, tmp_path, monkeypatch):
     data = res.json()
     assert any(b["id"] == "indeed.com" for b in data["boards"])
     assert any(b["id"] == "onlinejobs.ph" for b in data["boards"])
+    assert any(b.get("host") == "linkedin.com" for b in data["boards"])
+    assert "work_arrangements" in data
+    assert {a["id"] for a in data["work_arrangements"]} >= {"remote", "hybrid", "onsite"}
     # default: OnlineJobs off
     oj = next(b for b in data["boards"] if b["id"] == "onlinejobs.ph")
     assert oj["enabled"] is False
 
     res = client.post(
         "/api/setup/sources",
-        json={"job_boards": ["indeed.com", "jobstreet.com"]},
+        json={
+            "job_boards": ["indeed.com", "jobstreet.com"],
+            "work_arrangements": ["remote", "hybrid"],
+        },
     )
     assert res.status_code == 200
-    assert res.json()["job_boards"] == ["indeed.com", "jobstreet.com"]
+    body = res.json()
+    assert body["job_boards"] == ["indeed.com", "jobstreet.com"]
+    assert body["enabled_work_arrangements"] == ["remote", "hybrid"]
     assert (tmp_path / "config.json").exists()
 
     res = client.post("/api/setup/sources", json={"job_boards": []})
+    assert res.status_code == 400
+
+    res = client.post(
+        "/api/setup/sources",
+        json={"job_boards": ["indeed.com"], "work_arrangements": []},
+    )
     assert res.status_code == 400
 
 
@@ -643,6 +657,47 @@ def test_resume_save_clears_profile_cache(client, tmp_path, monkeypatch):
     res = client.post("/api/setup/resume", json={"content": "# New Resume\nUpdated"})
     assert res.status_code == 200
     assert not cache.exists()
+
+
+def test_installer_filename_from_github_url():
+    import server
+
+    url = "https://github.com/MarkJanzenB/LetMEWork/releases/download/v0.1.0-beta.4/LetMeWork-Setup-0.1.0-beta.4.exe"
+    assert server._installer_filename(url) == "LetMeWork-Setup-0.1.0-beta.4.exe"
+    assert server._installer_filename("https://example.com/nope") == "LetMeWork-Setup.exe"
+
+
+def test_version_newer_detects_mismatch():
+    import server
+
+    assert server._version_newer("0.1.0-beta.4", "0.1.0-beta.3") is True
+    assert server._version_newer("0.1.0-beta.4", "0.1.0-beta.4") is False
+
+
+def test_pending_update_roundtrip(tmp_path, monkeypatch):
+    import server
+    import user_data
+
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(server.config, "APP_VERSION", "0.1.0-beta.3")
+    setup = tmp_path / "LetMeWork-Setup.exe"
+    setup.write_bytes(b"fake")
+    server._save_pending_update("0.1.0-beta.4", setup, "abc")
+    pending = server._load_pending_update()
+    assert pending["version"] == "0.1.0-beta.4"
+    assert pending["path"] == str(setup)
+
+    monkeypatch.setattr(server.config, "APP_VERSION", "0.1.0-beta.4")
+    assert server._load_pending_update() is None
+    assert not user_data.pending_update_path().exists()
+
+
+def test_update_install_requires_download(client, tmp_path, monkeypatch):
+    import user_data
+
+    monkeypatch.setattr(user_data, "user_data_dir", lambda: tmp_path)
+    res = client.post("/api/update/install")
+    assert res.status_code == 400
 
 
 def test_abandon_orphan_runs_on_lifespan(tmp_path, monkeypatch):
