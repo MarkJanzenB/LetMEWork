@@ -444,7 +444,7 @@ def test_scrape_seeds_soft_deleted_urls():
         patch.object(agent, "FirecrawlApp", return_value=SimpleNamespace()),
         patch.dict("os.environ", {"FIRECRAWL_API_KEY": "test"}),
     ):
-        jobs = agent.scrape_jobs(["q"])
+        jobs = agent.scrape_jobs(["site:indeed.com remote"])
 
     assert jobs == []
 

@@ -10,10 +10,12 @@ def test_discover_pages_interleaves_results_across_queries():
 
     results = {
         "q1": [
-            SimpleNamespace(url=f"https://a.com/{i}", title="", description="") for i in range(3)
+            SimpleNamespace(url=f"https://www.indeed.com/viewjob?jk={i}", title="", description="")
+            for i in range(3)
         ],
         "q2": [
-            SimpleNamespace(url=f"https://b.com/{i}", title="", description="") for i in range(2)
+            SimpleNamespace(url=f"https://www.linkedin.com/jobs/view/{i}", title="", description="")
+            for i in range(2)
         ],
         "q3": [],
     }
@@ -22,11 +24,11 @@ def test_discover_pages_interleaves_results_across_queries():
     pages = agent.discover_pages(fake_app, ["q1", "q2", "q3"])
 
     assert [p["url"] for p in pages] == [
-        "https://a.com/0",
-        "https://b.com/0",
-        "https://a.com/1",
-        "https://b.com/1",
-        "https://a.com/2",
+        "https://www.indeed.com/viewjob?jk=0",
+        "https://www.linkedin.com/jobs/view/0",
+        "https://www.indeed.com/viewjob?jk=1",
+        "https://www.linkedin.com/jobs/view/1",
+        "https://www.indeed.com/viewjob?jk=2",
     ]
 
 
@@ -260,7 +262,7 @@ def test_run_pipeline_reuses_prev_queries_when_build_returns_empty(tmp_path, mon
     out = tmp_path / "output"
     out.mkdir()
     (out / "search_config.json").write_text(
-        json.dumps({"search_queries": ["old query"]})
+        json.dumps({"search_queries": ["site:indeed.com old query"]})
     )
 
     mock_raw_jobs = [
@@ -297,7 +299,7 @@ def test_run_pipeline_reuses_prev_queries_when_build_returns_empty(tmp_path, mon
         result = agent.run_pipeline()
 
     assert result["total"] == 1
-    mock_scrape.assert_called_once_with(["old query"])
+    mock_scrape.assert_called_once_with(["site:indeed.com old query"], {"name": "Test"})
 
 
 def test_run_opencode_json_strips_markdown_fences():

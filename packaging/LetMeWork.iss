@@ -6,7 +6,7 @@
 ; Signing optional — see SIGNING.md. SmartScreen: More info → Run anyway.
 
 #define MyAppName "Let Me Work"
-#define MyAppVersion "0.1.0-beta.4"
+#define MyAppVersion "0.1.0-beta.5"
 #define MyAppPublisher "Mark Janzen Bandola"
 #define MyAppURL "https://github.com/MarkJanzenB/LetMEWork"
 #define MyAppExeName "LetMeWork.exe"
@@ -33,7 +33,7 @@ SetupLogging=yes
 ; In-app update: Setup must close the running EXE before replacing it
 CloseApplications=force
 RestartApplications=yes
-VersionInfoVersion=0.1.0.4
+VersionInfoVersion=0.1.0.5
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} — local AI job finder
 VersionInfoProductName={#MyAppName}

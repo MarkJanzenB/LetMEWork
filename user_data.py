@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "LetMeWork"
-APP_VERSION = "0.1.0-beta.4"
+APP_VERSION = "0.1.0-beta.5"
 FIRECRAWL_KEYS_URL = "https://www.firecrawl.dev/app/api-keys"
 OPENROUTER_KEYS_URL = "https://openrouter.ai/keys"
 OLLAMA_KEYS_URL = "https://ollama.com/settings/keys"

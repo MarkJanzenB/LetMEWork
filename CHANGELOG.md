@@ -10,6 +10,13 @@ Repo: https://github.com/MarkJanzenB/LetMEWork
 ## [Unreleased]
 
 ### Added
+### Changed
+### Fixed
+### Removed
+
+## [0.1.0-beta.5] — 2026-08-28
+
+### Added
 - Resume stub guard: refuse Run Agent when resume is empty/placeholder (`# New Resume`); setup status exposes `resume_usable`
 - Reuse last `search_config.json` when the model returns zero search queries
 - Cancel policy: discard scrape before scoring; keep jobs if cancel happens after scores are saved
@@ -94,7 +101,8 @@ First public beta of the Let Me Work (OpenCode) edition.
 - Core scrape-and-score workflow: [Kurt Chan / AI Job Hunt Agent](https://github.com/Kurt-Chan/ai-job-scraper)
 - Let Me Work edition: [Mark Janzen Bandola](https://github.com/MarkJanzenB)
 
-[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.4...HEAD
+[Unreleased]: https://github.com/MarkJanzenB/LetMEWork/compare/v0.1.0-beta.5...HEAD
+[0.1.0-beta.5]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/MarkJanzenB/LetMEWork/releases/tag/v0.1.0-beta.2
